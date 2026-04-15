@@ -1,0 +1,26 @@
+# OS Metadata
+.DS_Store
+Thumbs.db
+*.swp
+
+# Dependencies
+node_modules/
+dist/
+build/
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+
+# Large Binary Files
+*.pptx
+!Song Template.pptx
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
