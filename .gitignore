@@ -13,9 +13,11 @@ build/
 .env.local
 .env.*.local
 
-# Large Binary Files
+# Large Binary Files — ignore personal files, keep templates
 *.pptx
-!Song Template.pptx
+!Song Template 1.pptx
+!Song Template 2.pptx
+!Song Template 3.pptx
 
 # IDE / Editor Settings
 .vscode/

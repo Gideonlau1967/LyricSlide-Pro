@@ -2,7 +2,6 @@
 
 const App = {
     elements: {
-        fileInput: document.getElementById('fileInput'),
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
         copyrightInfo: document.getElementById('copyrightInfo'),
@@ -21,15 +20,17 @@ const App = {
         flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    originalSlides: [], // Stores text from each slide for previewing
+    originalSlides: [],   // Slide data for live preview
+    selectedTemplateFile: null, // Currently selected template File object
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
         this.theme.init();
-        window.LyricApp = this; // Expose for UI calls
-        console.log("App Initialized. Version 14.0 (Themed)");
+        this.loadDefaultTemplates(); // Auto-load from templates.json
+        window.LyricApp = this;
+        console.log("App Initialized. Version 15.0 (Auto-Template)");
     },
 
     // --- THEME MANAGEMENT ---
@@ -291,14 +292,116 @@ const App = {
         this.elements.loadingOverlay.style.display = 'none';
     },
 
+    // --- TEMPLATE LIBRARY ---
+    async loadDefaultTemplates() {
+        const gallery = document.getElementById('templateGallery');
+        try {
+            const res = await fetch('./templates.json');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const names = await res.json();
+
+            document.getElementById('dirName').textContent = `${names.length} template${names.length !== 1 ? 's' : ''} available`;
+
+            const entries = names.map(name => ({
+                name,
+                getFile: async () => {
+                    const r = await fetch(`./${encodeURIComponent(name)}`);
+                    if (!r.ok) throw new Error(`Could not load ${name}`);
+                    const blob = await r.blob();
+                    return new File([blob], name, { type: blob.type });
+                }
+            }));
+
+            this.renderTemplateGallery(entries);
+        } catch (e) {
+            console.warn('templates.json load failed:', e.message);
+            document.getElementById('dirName').textContent = 'Could not load templates';
+            gallery.innerHTML = `
+                <div class="text-center py-8 text-slate-400 text-xs italic">
+                    <i class="fas fa-exclamation-circle mr-1"></i>
+                    Could not read templates.json.<br>
+                    Make sure this page is served via HTTP (not file://).
+                </div>`;
+        }
+    },
+
+    renderTemplateGallery(entries) {
+        const gallery = document.getElementById('templateGallery');
+        gallery.innerHTML = '';
+
+        if (!entries.length) {
+            gallery.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs italic">No templates found.</div>';
+            return;
+        }
+
+        const grid = document.createElement('div');
+        grid.className = 'template-grid';
+
+        entries.forEach(entry => {
+            const card = document.createElement('div');
+            card.className = 'template-card';
+            card.title = entry.name;
+
+            // Thumbnail — try PNG with same base name, fall back to icon
+            const thumbSrc = entry.name.replace(/\.pptx$/i, '.png');
+            const img = document.createElement('img');
+            img.className = 'template-thumb';
+            img.src = thumbSrc;
+            img.addEventListener('error', () => {
+                const ph = document.createElement('div');
+                ph.className = 'template-thumb-placeholder';
+                ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>';
+                img.replaceWith(ph);
+            });
+
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'template-card-name';
+            nameDiv.textContent = entry.name.replace(/\.pptx$/i, '');
+
+            card.appendChild(img);
+            card.appendChild(nameDiv);
+
+            card.addEventListener('click', async () => {
+                try {
+                    card.style.opacity = '0.6';
+                    const file = await entry.getFile();
+                    card.style.opacity = '1';
+                    this.selectTemplate({ name: entry.name, file }, card);
+                } catch (e) {
+                    card.style.opacity = '1';
+                    alert('Could not load template: ' + e.message);
+                }
+            });
+            grid.appendChild(card);
+        });
+
+        gallery.appendChild(grid);
+    },
+
+    selectTemplate(item, cardEl) {
+        this.selectedTemplateFile = item.file;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        cardEl.classList.add('selected');
+        const infoBar = document.getElementById('selectedTemplateInfo');
+        infoBar.classList.remove('hidden');
+        document.getElementById('selectedTemplateName').textContent = item.name;
+    },
+
+    clearTemplate() {
+        this.selectedTemplateFile = null;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('selectedTemplateInfo').classList.add('hidden');
+    },
+
     // --- GENERATION LOGIC (v11) ---
     async generate() {
-        const file = this.elements.fileInput.files[0];
+        const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
         const lyrics = this.elements.lyricsInput.value || '';
         const copyright = this.elements.copyrightInfo.value || '';
 
-        if (!file || !lyrics) return alert('Template and lyrics required.');
+        if (!file) return alert('Please select a template from the Template Library first.');
+        if (!lyrics) return alert('Lyrics are required.');
 
         try {
             this.showLoading('Reading template...');

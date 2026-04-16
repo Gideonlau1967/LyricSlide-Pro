@@ -196,6 +196,67 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Template Gallery */
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .template-card {
+            border-radius: 10px;
+            border: 2px solid #e2e8f0;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            overflow: hidden;
+            background: white;
+        }
+        .template-card:hover { border-color: var(--primary-color); transform: translateY(-2px); }
+        .template-card.selected {
+            border-color: var(--primary-color);
+            background: rgba(51,65,85,0.04);
+        }
+        .template-card.selected .template-card-name { color: var(--primary-color); font-weight: 700; }
+        .template-thumb {
+            aspect-ratio: 16/9;
+            width: 100%;
+            object-fit: cover;
+            display: block;
+            background: #f1f5f9;
+        }
+        .template-thumb-placeholder {
+            aspect-ratio: 16/9;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: #94a3b8;
+            font-size: 1.5rem;
+        }
+        .template-card-name {
+            padding: 6px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+            border-top: 1px solid #f1f5f9;
+            transition: color 0.15s;
+        }
+        .selected-badge {
+            position: absolute;
+            top: 5px; right: 5px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            width: 18px; height: 18px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 9px;
+        }
+        #templateGallery { max-height: 420px; overflow-y: auto; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -290,12 +351,35 @@
         
         <!-- GENERATE VIEW -->
         <div id="viewGen" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div class="lg:col-span-4 space-y-6">
-                <div class="glass p-8 flex flex-col items-center justify-center text-center group cursor-pointer border-2 border-slate-200 hover:bg-slate-50 transition-all active:scale-95" onclick="document.getElementById('fileInput').click()">
-                    <input type="file" id="fileInput" class="hidden" accept=".pptx">
-                    <i class="fas fa-file-invoice text-4xl text-slate-300 mb-4"></i>
-                    <h3 class="font-bold text-slate-700">Template File</h3>
-                    <p id="fileName" class="text-slate-400 text-sm truncate w-full px-4">Click to select .pptx</p>
+            <div class="lg:col-span-4 space-y-3">
+                <!-- Template Library Header -->
+                <div class="glass p-4 flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <h3 class="font-bold text-slate-700 text-sm">Templates</h3>
+                        <p id="dirName" class="text-slate-400 text-xs mt-0.5 truncate">Loading from current folder...</p>
+                    </div>
+                </div>
+
+                <!-- Template Gallery -->
+                <div class="glass p-4">
+                    <div id="templateGallery">
+                        <div class="text-center py-10 text-slate-400 italic text-xs">
+                            <i class="fas fa-spinner fa-spin text-2xl mb-3 block opacity-30"></i>
+                            Loading templates...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selected template info bar -->
+                <div id="selectedTemplateInfo" class="hidden glass p-3 flex items-center gap-3">
+                    <i class="fas fa-check-circle text-green-500 text-sm"></i>
+                    <div class="min-w-0">
+                        <p class="text-xs font-bold text-slate-700 truncate" id="selectedTemplateName">—</p>
+                        <p class="text-[10px] text-slate-400">Selected template</p>
+                    </div>
+                    <button onclick="clearTemplate()" class="ml-auto text-slate-300 hover:text-slate-500 text-xs flex-shrink-0">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
             </div>
             <div class="lg:col-span-8 glass p-8 space-y-6">
@@ -466,11 +550,9 @@
         function setMode(mode) { window.LyricApp.setMode(mode); }
         function updateZoom(val) { window.LyricApp.updateZoom(val); }
         function changeSemitones(delta) { window.LyricApp.changeSemitones(delta); }
+        function pickTemplateDir() { window.LyricApp.pickTemplateDir(); }
+        function clearTemplate() { window.LyricApp.clearTemplate(); }
 
-        document.getElementById('fileInput').addEventListener('change', e => {
-            if(e.target.files[0]) document.getElementById('fileName').textContent = e.target.files[0].name;
-        });
-        
         document.getElementById('transFileInput').addEventListener('change', async e => {
             if(e.target.files[0]) {
                 document.getElementById('transFileName').textContent = e.target.files[0].name;
