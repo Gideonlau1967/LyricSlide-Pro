@@ -347,39 +347,114 @@ const App = {
             this.hideLoading();
         }
     },
-
     // --- TRANSPOSITION LOGIC ---
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
+
+        // Read per-section font settings
+        const getSz = id => { const v = parseFloat(document.getElementById(id).value); return (!isNaN(v) && v > 0) ? Math.round(v * 100) : null; };
+        const getFont = id => document.getElementById(id).value.trim();
+
+        const titleFont   = getFont('fontTitle');    const titleSize   = getSz('fontSizeTitle');
+        const lyricsFont  = getFont('fontLyrics');   const lyricsSize  = getSz('fontSizeLyrics');
+        const copyFont    = getFont('fontCopyright');const copySize    = getSz('fontSizeCopyright');
+
+        const anyFontChange = titleFont || titleSize || lyricsFont || lyricsSize || copyFont || copySize;
+
         if (!file) return alert('Select a PPTX file to transpose.');
-        if (semitones === 0) return alert('Please select a transposition amount (e.g. +1 or -1).');
+        if (semitones === 0 && !anyFontChange) return alert('Please select a transposition amount and/or choose font settings.');
 
         try {
-            this.showLoading(`Transposing ${semitones > 0 ? '+' : ''}${semitones} semitones...`);
+            this.showLoading('Applying changes...');
             const zip = await JSZip.loadAsync(file);
-            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
+            const slideFiles = Object.keys(zip.files)
+                .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
+                .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
 
             for (const path of slideFiles) {
                 let content = await zip.file(path).async('string');
-                // Regex for chords: Any run of characters that looks like a chord line
-                // We'll process each text tag <a:t>
-                content = content.replace(/<a:t>(.*?)<\/a:t>/g, (match, text) => {
-                    const transposedText = this.transposeLine(text, semitones);
-                    return `<a:t>${transposedText}</a:t>`;
-                });
+
+                // Step 1: Transpose chords in all <a:t> tags
+                if (semitones !== 0) {
+                    content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) =>
+                        `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
+                }
+
+                // Step 2: Apply per-section font/size, shape by shape
+                if (anyFontChange) {
+                    content = content.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeMatch, shapeContent) => {
+                        // Detect placeholder type
+                        const isTitle    = /<p:ph[^>]*type="(?:title|ctrTitle)"/.test(shapeContent);
+                        const isFooter   = /<p:ph[^>]*type="ftr"/.test(shapeContent);
+                        const isSkipped  = /<p:ph[^>]*type="(?:dt|sldNum)"/.test(shapeContent);
+                        if (isSkipped) return shapeMatch;
+
+                        // Also detect copyright by text content (for custom text boxes)
+                        const plainText  = shapeContent.replace(/<[^>]+>/g, '');
+                        const isCopyright = isFooter || /©|copyright|ccli/i.test(plainText);
+
+                        let targetFont, targetSize;
+                        if (isTitle)          { targetFont = titleFont;  targetSize = titleSize;  }
+                        else if (isCopyright) { targetFont = copyFont;   targetSize = copySize;   }
+                        else                  { targetFont = lyricsFont; targetSize = lyricsSize; }
+
+                        if (!targetFont && !targetSize) return shapeMatch;
+                        return `<p:sp>${this.applyFontToShapeXml(shapeContent, targetFont, targetSize)}</p:sp>`;
+                    });
+                }
+
                 zip.file(path, content);
             }
 
             this.showLoading('Downloading...');
             const finalBlob = await zip.generateAsync({ type: 'blob' });
-            saveAs(finalBlob, file.name.replace('.pptx', `_transposed_${semitones > 0 ? 'plus' : 'minus'}${Math.abs(semitones)}.pptx`));
+            const suffix = [
+                semitones !== 0 ? `${semitones > 0 ? 'plus' : 'minus'}${Math.abs(semitones)}` : '',
+                anyFontChange ? 'fontChanged' : ''
+            ].filter(Boolean).join('_');
+            saveAs(finalBlob, file.name.replace('.pptx', `_${suffix || 'modified'}.pptx`));
             this.hideLoading();
         } catch (err) {
             console.error(err);
             alert("Error: " + err.message);
             this.hideLoading();
         }
+    },
+
+    applyFontToShapeXml(shapeXml, fontFamily, fontSizeHundredths) {
+        // Handle self-closing <a:rPr .../>
+        shapeXml = shapeXml.replace(/<a:rPr([^>]*)\/>/g, (_, attrs) => {
+            const newAttrs = this.applyFontSizeToAttrs(attrs, fontSizeHundredths);
+            return `<a:rPr${newAttrs}>${this.buildFontTags(fontFamily)}</a:rPr>`;
+        });
+        // Handle open <a:rPr ...>...</a:rPr>
+        shapeXml = shapeXml.replace(/<a:rPr([^>]*)>([\s\S]*?)<\/a:rPr>/g, (_, attrs, inner) => {
+            const newAttrs = this.applyFontSizeToAttrs(attrs, fontSizeHundredths);
+            if (fontFamily) {
+                inner = inner
+                    .replace(/<a:latin[^>]*\/>/g, '')
+                    .replace(/<a:ea[^>]*\/>/g, '')
+                    .replace(/<a:cs[^>]*\/>/g, '')
+                    .replace(/<a:latin[^>]*>[\s\S]*?<\/a:latin>/g, '')
+                    .replace(/<a:ea[^>]*>[\s\S]*?<\/a:ea>/g, '')
+                    .replace(/<a:cs[^>]*>[\s\S]*?<\/a:cs>/g, '');
+            }
+            return `<a:rPr${newAttrs}>${this.buildFontTags(fontFamily)}${inner}</a:rPr>`;
+        });
+        return shapeXml;
+    },
+
+    applyFontSizeToAttrs(attrs, fontSizeHundredths) {
+        if (!fontSizeHundredths) return attrs;
+        if (/\bsz="[^"]+"/.test(attrs)) return attrs.replace(/\bsz="[^"]+"/, `sz="${fontSizeHundredths}"`);
+        return attrs + ` sz="${fontSizeHundredths}"`;
+    },
+
+    buildFontTags(fontFamily) {
+        if (!fontFamily) return '';
+        const e = fontFamily.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        return `<a:latin typeface="${e}"/><a:ea typeface="${e}"/><a:cs typeface="${e}"/>`;
     },
 
     transposeLine(text, semitones) {
