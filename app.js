@@ -626,7 +626,7 @@ const App = {
         return outList[newIdx];
     },
 
-    // --- REPLACEMENT ENGINE (RIGID BLOCK-LOCK) ---
+    // --- UPDATED REPLACEMENT ENGINE (TAG CENTERING + BLOCK LOCK) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -639,13 +639,25 @@ const App = {
 
                 let rawLines = (replacement || '').split(/\r?\n/);
                 
-                // RIGID BLOCK LOGIC
                 if (placeholder === '[Lyrics and Chords]') {
                     const maxLen = Math.max(...rawLines.map(l => l.length));
+                    
                     rawLines = rawLines.map(l => {
-                        const paddingCount = maxLen - l.length;
-                        // Replace all spaces with NBSP (\u00A0) and pad on the right
-                        return l.replace(/ /g, '\u00A0') + '\u00A0'.repeat(paddingCount);
+                        const trimmed = l.trim();
+                        const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
+                        
+                        if (isTag) {
+                            // CENTER the tag relative to the max width of the block
+                            const diff = maxLen - trimmed.length;
+                            const leftPad = Math.floor(diff / 2);
+                            const rightPad = diff - leftPad;
+                            return '\u00A0'.repeat(leftPad) + trimmed + '\u00A0'.repeat(rightPad);
+                        } else {
+                            // LOCK chords and lyrics to the left of the block
+                            const paddingCount = maxLen - l.length;
+                            // Replace all internal spaces with NBSP to preserve alignment
+                            return l.replace(/ /g, '\u00A0') + '\u00A0'.repeat(paddingCount);
+                        }
                     });
                 }
 
@@ -657,7 +669,6 @@ const App = {
                     injected += line;
                 });
 
-                // Manual shrink for long lyrics
                 if (placeholder === '[Lyrics and Chords]' && lines.length > 10) {
                     const szMatch = style.match(/sz=\"(\d+)\"/);
                     if (szMatch) {
@@ -670,7 +681,6 @@ const App = {
                     return `</a:t></a:r><a:r>${style}<a:t xml:space="preserve">${injected}</a:t></a:r><a:r>${style}<a:t xml:space="preserve">`;
                 });
 
-                // FORCE CENTER ALIGNMENT IN PARAGRAPH PROPERTIES
                 if (placeholder === '[Lyrics and Chords]') {
                     if (result.includes('<a:pPr')) {
                         result = result.replace(/<a:pPr([^>]*)>/, (m, attrs) => 
