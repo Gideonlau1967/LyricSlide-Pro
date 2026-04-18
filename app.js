@@ -626,7 +626,7 @@ const App = {
         return outList[newIdx];
     },
 
-    // --- REPLACEMENT ENGINE ---
+    // --- REPLACEMENT ENGINE (RIGID BLOCK-LOCK) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -637,7 +637,19 @@ const App = {
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
 
-                const lines = (replacement || '').split(/\r?\n/).map(l => this.escXml(l));
+                let rawLines = (replacement || '').split(/\r?\n/);
+                
+                // RIGID BLOCK LOGIC
+                if (placeholder === '[Lyrics and Chords]') {
+                    const maxLen = Math.max(...rawLines.map(l => l.length));
+                    rawLines = rawLines.map(l => {
+                        const paddingCount = maxLen - l.length;
+                        // Replace all spaces with NBSP (\u00A0) and pad on the right
+                        return l.replace(/ /g, '\u00A0') + '\u00A0'.repeat(paddingCount);
+                    });
+                }
+
+                const lines = rawLines.map(l => this.escXml(l));
                 phRegex.lastIndex = 0;
                 let injected = '';
                 lines.forEach((line, idx) => {
@@ -656,7 +668,20 @@ const App = {
 
                 let result = shapeXml.replace(phRegex, () => {
                     return `</a:t></a:r><a:r>${style}<a:t xml:space="preserve">${injected}</a:t></a:r><a:r>${style}<a:t xml:space="preserve">`;
-                }).replace(/<a:t xml:space="preserve"><\/a:t>/g, '').replace(/<a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r>/g, '');
+                });
+
+                // CENTER ALIGNMENT INJECTOR
+                if (placeholder === '[Lyrics and Chords]') {
+                    if (result.includes('<a:pPr')) {
+                        result = result.replace(/<a:pPr([^>]*)>/, (m, attrs) => 
+                            attrs.includes('algn=') ? m.replace(/algn="[^"]*"/, 'algn="ctr"') : `<a:pPr${attrs} algn="ctr">`
+                        );
+                    } else {
+                        result = result.replace(/<a:p>/g, '<a:p><a:pPr algn="ctr"/>');
+                    }
+                }
+
+                result = result.replace(/<a:t xml:space="preserve"><\/a:t>/g, '').replace(/<a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r>/g, '');
 
                 if (result.includes('<a:noAutofit/>')) {
                     result = result.replace('<a:noAutofit/>', '<a:normAutofit fontScale="75000" lnSpcReduction="15000"/>');
