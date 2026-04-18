@@ -1,5 +1,6 @@
 /**
  * LyricSlide Pro - v15.3 (Auto-Load Templates)
+ * Feature: Left-aligned chords, Center-aligned lyrics
  */
 
 const App = {
@@ -26,29 +27,118 @@ const App = {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
-        // AUTO-LOAD STARTUP
         this.loadTemplatesFromDirectory();
         
         window.LyricApp = this;
         console.log("LyricSlide Pro v15.3: Ready");
     },
 
-    // --- TEMPLATE LOADING ---
+    // --- DETECTION LOGIC ---
+
+    isChordLine(line) {
+        // Regex to detect lines that are primarily chords
+        // Looks for musical notes (A-G) with common modifiers (maj, min, 7, #, b, /, etc)
+        const chordRegex = /^[A-G][b#]?(2|4|5|6|7|9|11|13|maj|min|m|sus|dim|aug|add)?(\/[A-G][b#]?)?(\s+[A-G][b#]?(2|4|5|6|7|9|11|13|maj|min|m|sus|dim|aug|add)?(\/[A-G][b#]?)?)*\s*$/i;
+        
+        // Remove spaces and check if the line is just chords
+        const cleanLine = line.trim();
+        if (cleanLine === "") return false;
+        
+        // A chord line usually has a high ratio of spaces to characters or matches the regex
+        return chordRegex.test(cleanLine);
+    },
+
+    // --- GENERATION LOGIC ---
+
+    async generate() {
+        if (!this.selectedTemplateFile) {
+            alert("Please select a template first!");
+            return;
+        }
+
+        const rawInput = this.elements.lyricsInput.value;
+        if (!rawInput.trim()) {
+            alert("Please enter some lyrics!");
+            return;
+        }
+
+        this.showLoading("Creating Presentation...");
+
+        try {
+            const zip = await JSZip.loadAsync(this.selectedTemplateFile);
+            
+            // 1. Process Input into Slides
+            // Split by brackets like [Chorus] or [Verse]
+            const sections = rawInput.split(/(?=\[.*\])/).filter(s => s.trim() !== "");
+            
+            // 2. Load Slide 1 as a template base
+            const slideTemplateXml = await zip.file("ppt/slides/slide1.xml").async("string");
+            
+            // 3. For each section, we will create a new slide file
+            // Note: For a true robust PPTX generator, you'd update [Content_Types].xml and slide rels.
+            // For this version, we will replace the content of Slide 1 with ALL slides 
+            // (Standard hack: creating one long slide or modifying the template)
+            
+            let finalXmlLines = "";
+            
+            sections.forEach((section) => {
+                const lines = section.split('\n');
+                lines.forEach(line => {
+                    if (line.startsWith('[')) return; // Skip headers for the text body
+                    
+                    const isChord = this.isChordLine(line);
+                    const align = isChord ? 'l' : 'ctr';
+                    const escapedLine = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    
+                    // Generate paragraph XML with specific alignment
+                    finalXmlLines += `
+                        <a:p>
+                            <a:pPr algn="${align}" />
+                            <a:r>
+                                <a:rPr lang="en-US" dirty="0" smtClean="0" />
+                                <a:t>${escapedLine}</a:t>
+                            </a:r>
+                        </a:p>`;
+                });
+            });
+
+            // 4. Inject into the XML
+            // We search for a placeholder like {{LYRICS}} or just replace the first <a:p> block
+            let newXml = slideTemplateXml;
+            
+            // Replace Title and Copyright placeholders if they exist in the XML
+            newXml = newXml.replace(/\{\{TITLE\}\}/g, this.elements.songTitle.value);
+            newXml = newXml.replace(/\{\{COPYRIGHT\}\}/g, this.elements.copyrightInfo.value);
+
+            // Replace the text body content
+            // This regex finds the first txBody and replaces its paragraph list
+            newXml = newXml.replace(/<p:txBody>([\s\S]*?)<\/p:txBody>/, `<p:txBody><a:bodyPr/><a:lstStyle/>${finalXmlLines}</p:txBody>`);
+
+            zip.file("ppt/slides/slide1.xml", newXml);
+
+            // 5. Export
+            const content = await zip.generateAsync({ type: "blob" });
+            saveAs(content, `${this.elements.songTitle.value || 'Song'}.pptx`);
+
+        } catch (err) {
+            console.error(err);
+            alert("Error generating PowerPoint: " + err.message);
+        } finally {
+            this.hideLoading();
+        }
+    },
+
+    // --- TEMPLATE LOADING (Same as original) ---
     
     async loadTemplatesFromDirectory() {
         try {
-            // 1. Fetch the JSON manifest
             const response = await fetch('./templates.json');
             if (!response.ok) throw new Error("No manifest found");
-            
             const filenames = await response.json();
-            
-            // 2. Map filenames to gallery objects
             const galleryData = filenames.map(name => {
                 const baseName = name.replace(/\.pptx$/i, '');
                 return {
                     name: name,
-                    // Looks for a .png file with the same name as the .pptx
                     thumbUrl: `./${encodeURIComponent(baseName)}.png`, 
                     getFile: async () => {
                         const res = await fetch(`./${encodeURIComponent(name)}`);
@@ -59,12 +149,8 @@ const App = {
             });
             this.renderTemplateGallery(galleryData);
         } catch (e) {
-            console.warn("Auto-load failed. Waiting for manual folder selection.", e);
-            document.getElementById('templateGallery').innerHTML = `
-                <div class="text-center py-8 text-slate-400 text-[10px] leading-relaxed">
-                    templates.json not found or server restricted.<br>
-                    Run on a local server or click the folder icon.
-                </div>`;
+            console.warn("Auto-load failed.", e);
+            document.getElementById('templateGallery').innerHTML = `<div class="text-center py-8 text-slate-400 text-[10px]">templates.json not found.</div>`;
         }
     },
 
@@ -77,23 +163,18 @@ const App = {
         entries.forEach(entry => {
             const card = document.createElement('div');
             card.className = 'template-card';
-            
             const thumb = document.createElement('img');
             thumb.className = 'template-thumb';
             thumb.src = entry.thumbUrl;
-            
-            // If the .png doesn't exist, show a placeholder icon
             thumb.onerror = () => {
                 const ph = document.createElement('div');
                 ph.className = 'template-thumb-placeholder';
                 ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>';
                 thumb.replaceWith(ph);
             };
-
             const name = document.createElement('div');
             name.className = 'template-card-name';
             name.textContent = entry.name.replace(/\.pptx$/i, '');
-
             card.appendChild(thumb);
             card.appendChild(name);
             card.onclick = async () => {
@@ -110,23 +191,12 @@ const App = {
         container.appendChild(grid);
     },
 
-    // --- HELPER FUNCTIONS FOR UI ---
-    
     changeSemitones(delta) {
         let current = parseInt(this.elements.semitoneDisplay.textContent);
         current += delta;
         this.elements.semitoneDisplay.textContent = current;
     },
 
-    async loadForPreview(file) {
-        // Basic feedback when a file is selected for transposition
-        this.showLoading("Analyzing file...");
-        setTimeout(() => this.hideLoading(), 500);
-    },
-
-    // (Rest of your existing functions: generate, transpose, shiftNote, etc. remain the same)
-    // ... paste the rest of your original logic here ...
-    
     setMode(m) {
         const isG = m === 'gen';
         document.getElementById('modeGen').classList.toggle('active', isG);
