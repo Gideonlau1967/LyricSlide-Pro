@@ -1,4 +1,4 @@
-    // --- REPLACEMENT ENGINE (Updated for Centered Alignment) ---
+    // --- REPLACEMENT ENGINE (Block-Centering Logic) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -9,30 +9,28 @@
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
 
-                // --- NEW ALIGNMENT LOGIC ---
+                // 1. Split into lines and find the longest line in the section
                 let lines = (replacement || '').split(/\r?\n/);
-                
-                // 1. Find the longest line to determine the block width
                 const maxLength = Math.max(...lines.map(l => l.length));
-                
-                // 2. Define a "Canvas Width" (Characters per line). 
-                // 60 is a safe average for standard PPT slides.
-                const CANVAS_WIDTH = 60; 
-                const paddingAmount = Math.max(0, Math.floor((CANVAS_WIDTH - maxLength) / 2));
-                const leadingSpaces = " ".repeat(paddingAmount);
 
-                // 3. Apply padding to every line and escape XML
-                const processedLines = lines.map(l => this.escXml(leadingSpaces + l));
-                
+                // 2. Block Centering Calculation
+                // Standard PPT slide width at ~24-28pt font is roughly 60-70 characters wide.
+                const CANVAS_WIDTH = 65; 
+                const padCount = Math.max(0, Math.floor((CANVAS_WIDTH - maxLength) / 2));
+                const blockPadding = " ".repeat(padCount);
+
+                // 3. Process lines: Apply uniform padding to the left of EVERY line
+                const processedLines = lines.map(l => this.escXml(blockPadding + l));
+
                 phRegex.lastIndex = 0;
                 let injected = '';
                 processedLines.forEach((line, idx) => {
-                    // Note: We use xml:space="preserve" to ensure PPT doesn't trim our padding
+                    // xml:space="preserve" is CRITICAL to stop PPT from deleting your spaces
                     if (idx > 0) injected += `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`;
                     injected += line;
                 });
 
-                // Manual shrink for long lyrics
+                // Auto-shrink for long sections
                 if (placeholder === '[Lyrics and Chords]' && processedLines.length > 10) {
                     const szMatch = style.match(/sz=\"(\d+)\"/);
                     if (szMatch) {
@@ -41,14 +39,16 @@
                     }
                 }
 
+                // 4. Inject and FORCE Left Alignment
+                // We must use Left Align ('l') because our padding handles the centering.
                 let result = shapeXml.replace(phRegex, () => {
                     return `</a:t></a:r><a:r>${style}<a:t xml:space="preserve">${injected}</a:t></a:r><a:r>${style}<a:t xml:space="preserve">`;
-                }).replace(/<a:t xml:space="preserve"><\/a:t>/g, '').replace(/<a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r>/g, '');
+                })
+                .replace(/algn="ctr"/g, 'algn="l"') // Change center to left
+                .replace(/<a:t xml:space="preserve"><\/a:t>/g, '')
+                .replace(/<a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r>/g, '');
 
-                // Force Left Alignment in the XML so our manual space-padding works
-                // If the template was centered, our spaces would double-center and break it.
-                result = result.replace(/algn="ctr"/g, 'algn="l"');
-
+                // Standard Autofit Logic
                 if (result.includes('<a:noAutofit/>')) {
                     result = result.replace('<a:noAutofit/>', '<a:normAutofit fontScale="75000" lnSpcReduction="15000"/>');
                 } else if (!result.includes('Autofit')) {
