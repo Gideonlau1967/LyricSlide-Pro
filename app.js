@@ -670,7 +670,7 @@ const App = {
                     return `</a:t></a:r><a:r>${style}<a:t xml:space="preserve">${injected}</a:t></a:r><a:r>${style}<a:t xml:space="preserve">`;
                 });
 
-                // CENTER ALIGNMENT INJECTOR
+                // FORCE CENTER ALIGNMENT IN PARAGRAPH PROPERTIES
                 if (placeholder === '[Lyrics and Chords]') {
                     if (result.includes('<a:pPr')) {
                         result = result.replace(/<a:pPr([^>]*)>/, (m, attrs) => 
