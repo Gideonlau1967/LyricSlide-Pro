@@ -626,7 +626,7 @@ const App = {
         return outList[newIdx];
     },
 
-   // --- AMENDED REPLACEMENT ENGINE (NO BULLETS VERSION) ---
+   // --- AMENDED REPLACEMENT ENGINE (18PT CHORDS + NO BULLETS) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -649,14 +649,11 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + NO BULLETS) ---
-                // We "burst" the paragraph and explicitly add <a:buNone/> to disable bullets
+                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + 18PT CHORDS) ---
                 let injectedXml = `</a:t></a:r></a:p>`;
 
                 rawLines.forEach((line) => {
                     const trimmed = line.trim();
-                    
-                    // Handle empty lines (still disable bullets)
                     if (trimmed === '') {
                         injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
                         return;
@@ -667,8 +664,20 @@ const App = {
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
                     
                     let alignment = 'ctr';
-                    if (chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3)) {
+                    let lineStyle = style; // Default to template style
+
+                    // Determine if it's a chord line
+                    const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
+
+                    if (isChordLine) {
                         alignment = 'l';
+                        // FORCE 18pt (1800 units)
+                        if (lineStyle.includes('sz=')) {
+                            lineStyle = lineStyle.replace(/sz="\d+"/, 'sz="1800"');
+                        } else {
+                            // If template had no size defined, inject it into the tag
+                            lineStyle = lineStyle.replace('<a:rPr', '<a:rPr sz="1800"');
+                        }
                     }
 
                     const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
@@ -676,24 +685,22 @@ const App = {
                     injectedXml += `
                         <a:p>
                             <a:pPr algn="${alignment}">
-                                <a:buNone/> 
+                                <a:buNone/>
                             </a:pPr>
                             <a:r>
-                                ${style}
+                                ${lineStyle}
                                 <a:t xml:space="preserve">${escapedLine}</a:t>
                             </a:r>
                         </a:p>`;
                 });
 
-                // Re-open tags for XML validity
                 injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
 
                 let result = shapeXml.replace(phRegex, () => injectedXml);
 
-                // Cleanup fragment tags
                 result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
                 
-                // Maintain Autofit
+                // Final Autofit settings
                 if (!result.includes('Autofit')) {
                     result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
                 }
