@@ -1,6 +1,6 @@
 /**
- * LyricSlide Pro - v15.6 (Smart Alignment Edition)
- * Preserves template alignment for Title/Copyright.
+ * LyricSlide Pro - v15.7 (Perfect Format Edition)
+ * Preserves Font Size, Color, and Position from Template.
  */
 
 const App = {
@@ -21,32 +21,11 @@ const App = {
         window.LyricApp = this;
     },
 
-    // --- DETECTION LOGIC ---
     isChordLine(line) {
         const trimmed = line.trim();
         if (!trimmed) return false;
-        // Musical chord detection (A-G with modifiers)
         const chordRegex = /^[A-G][b#]?(m|maj|min|dim|aug|sus|add|2|4|5|6|7|9|11|13|[\+\-\^\(\)])?(\/[A-G][b#]?)?(\s+[A-G][b#]?(m|maj|min|dim|aug|sus|add|2|4|5|6|7|9|11|13)?(\/[A-G][b#]?)?)*$/i;
         return chordRegex.test(trimmed);
-    },
-
-    // Helper to create PowerPoint Paragraph XML
-    createP(text, align = 'l') {
-        const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `
-            <a:p>
-                <a:pPr algn="${align}"><a:buNone/></a:pPr>
-                <a:r>
-                    <a:rPr lang="en-US" dirty="0" smtClean="0" />
-                    <a:t>${safeText}</a:t>
-                </a:r>
-            </a:p>`;
-    },
-
-    // Helper to extract alignment from an existing paragraph string
-    getExistingAlignment(pXml) {
-        const match = pXml.match(/algn="([^"]+)"/);
-        return match ? match[1] : 'l'; // Default to left if not found
     },
 
     async generate() {
@@ -61,28 +40,49 @@ const App = {
             const zip = await JSZip.loadAsync(this.selectedTemplateFile);
             let slideXml = await zip.file("ppt/slides/slide1.xml").async("string");
 
-            // --- 1. PREPARE REPLACEMENTS ---
+            // --- 1. REPLACE TITLE & COPYRIGHT (Keep exact Run Properties) ---
+            // This replaces the text inside the existing <a:t> tag without touching the <a:rPr> (styling)
+            slideXml = slideXml.replace(/{{TITLE}}/g, (this.elements.songTitle.value || "").replace(/&/g, '&amp;'));
+            slideXml = slideXml.replace(/{{COPYRIGHT}}/g, (this.elements.copyrightInfo.value || "").replace(/&/g, '&amp;'));
 
-            // A. Title: Find template alignment then replace
-            slideXml = this.replaceWithTemplateAlignment(slideXml, '{{TITLE}}', this.elements.songTitle.value);
-
-            // B. Copyright: Find template alignment then replace
-            slideXml = this.replaceWithTemplateAlignment(slideXml, '{{COPYRIGHT}}', this.elements.copyrightInfo.value);
-
-            // C. Lyrics: Special Logic (Left chords, Center lyrics)
-            const lyricLines = this.elements.lyricsInput.value.split('\n');
-            let lyricXmlContent = "";
-            lyricLines.forEach(line => {
-                if (line.trim().startsWith('[')) return; 
-                const align = this.isChordLine(line) ? 'l' : 'ctr';
-                lyricXmlContent += this.createP(line, align);
-            });
+            // --- 2. PROCESS LYRICS (Clone Style per Line) ---
             
-            // Replace the lyric block paragraph entirely
-            const lyricRe = new RegExp(`<a:p>(?:(?!<a:p>).)*?{{LYRICS}}[\\s\\S]*?<\\/a:p>`, 'g');
-            slideXml = slideXml.replace(lyricRe, lyricXmlContent);
+            // Find the paragraph containing {{LYRICS}} to steal its style
+            const lyricParaRegex = /(<a:p>[\s\S]*?{{LYRICS}}[\s\S]*?<\/a:p>)/;
+            const match = slideXml.match(lyricParaRegex);
 
-            // --- 2. FINALIZE ---
+            if (match) {
+                const templatePara = match[0];
+                
+                // Extract the specific style (Run Properties <a:rPr>) from the template paragraph
+                const rPrMatch = templatePara.match(/<a:rPr[\s\S]*?\/?>/);
+                const rPr = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US" />';
+
+                const lyricLines = this.elements.lyricsInput.value.split('\n');
+                let newLyricXml = "";
+
+                lyricLines.forEach(line => {
+                    if (line.trim().startsWith('[')) return; // Skip headers
+                    
+                    const align = this.isChordLine(line) ? 'l' : 'ctr';
+                    const safeText = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+                    // Construct new paragraph using the template's font properties
+                    newLyricXml += `
+                        <a:p>
+                            <a:pPr algn="${align}"><a:buNone/></a:pPr>
+                            <a:r>
+                                ${rPr}
+                                <a:t>${safeText}</a:t>
+                            </a:r>
+                        </a:p>`;
+                });
+
+                // Swap the single {{LYRICS}} paragraph with the stack of new paragraphs
+                slideXml = slideXml.replace(templatePara, newLyricXml);
+            }
+
+            // Save back
             zip.file("ppt/slides/slide1.xml", slideXml);
             const content = await zip.generateAsync({ type: "blob" });
             const safeName = (this.elements.songTitle.value || "Song").replace(/[^a-z0-9]/gi, '_');
@@ -96,22 +96,7 @@ const App = {
         }
     },
 
-    // Dynamic replacement that reads the alignment of the paragraph containing the tag
-    replaceWithTemplateAlignment(xml, tag, value) {
-        // Find the specific paragraph containing the placeholder tag
-        const pRegex = new RegExp(`(<a:p>(?:(?!<a:p>).)*?${tag}[\\s\\S]*?<\\/a:p>)`, 'g');
-        const match = xml.match(pRegex);
-        
-        if (match) {
-            const originalP = match[0];
-            const align = this.getExistingAlignment(originalP);
-            const newP = this.createP(value || "", align);
-            return xml.replace(originalP, newP);
-        }
-        return xml;
-    },
-
-    // --- GALLERY LOADING ---
+    // --- GALLERY LOADING (Standard) ---
     async loadTemplatesFromDirectory() {
         try {
             const response = await fetch('./templates.json');
@@ -129,7 +114,7 @@ const App = {
                 };
             });
             this.renderTemplateGallery(galleryData);
-        } catch (e) { console.warn("Load error", e); }
+        } catch (e) { console.warn(e); }
     },
 
     renderTemplateGallery(entries) {
@@ -143,12 +128,7 @@ const App = {
             const thumb = document.createElement('img');
             thumb.className = 'template-thumb';
             thumb.src = entry.thumbUrl;
-            thumb.onerror = () => {
-                const ph = document.createElement('div');
-                ph.className = 'template-thumb-placeholder';
-                ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>';
-                thumb.replaceWith(ph);
-            };
+            thumb.onerror = () => { thumb.replaceWith(document.createElement('div')); };
             const name = document.createElement('div');
             name.className = 'template-card-name';
             name.textContent = entry.name.replace(/\.pptx$/i, '');
