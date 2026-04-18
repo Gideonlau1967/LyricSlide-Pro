@@ -626,7 +626,7 @@ const App = {
         return outList[newIdx];
     },
 
-    // --- AMENDED REPLACEMENT ENGINE (HYBRID LOGIC) ---
+   // --- AMENDED REPLACEMENT ENGINE (NO BULLETS VERSION) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -634,14 +634,13 @@ const App = {
 
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
-                // 1. Get the style (rPr) from the template to keep formatting (size/font/color)
                 const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
 
                 const rawLines = (replacement || '').split(/\r?\n/);
 
-                // --- BRANCH A: Title and Copyright (PRESERVE TEMPLATE ALIGNMENT) ---
+                // --- BRANCH A: Title and Copyright (SIMPLE REPLACE) ---
                 if (placeholder !== '[Lyrics and Chords]') {
                     const escapedText = rawLines
                         .map(l => this.escXml(l))
@@ -650,14 +649,16 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT) ---
-                // Start by "bursting" out of the template's current paragraph
+                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + NO BULLETS) ---
+                // We "burst" the paragraph and explicitly add <a:buNone/> to disable bullets
                 let injectedXml = `</a:t></a:r></a:p>`;
 
                 rawLines.forEach((line) => {
                     const trimmed = line.trim();
+                    
+                    // Handle empty lines (still disable bullets)
                     if (trimmed === '') {
-                        injectedXml += `<a:p><a:pPr algn="ctr"/><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
                         return;
                     }
 
@@ -665,7 +666,6 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
                     
-                    // Specific Logic: Chords = Left, Lyrics/Tags = Center
                     let alignment = 'ctr';
                     if (chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3)) {
                         alignment = 'l';
@@ -675,7 +675,9 @@ const App = {
 
                     injectedXml += `
                         <a:p>
-                            <a:pPr algn="${alignment}"/>
+                            <a:pPr algn="${alignment}">
+                                <a:buNone/> 
+                            </a:pPr>
                             <a:r>
                                 ${style}
                                 <a:t xml:space="preserve">${escapedLine}</a:t>
@@ -683,15 +685,15 @@ const App = {
                         </a:p>`;
                 });
 
-                // Re-open tags to maintain valid XML with the template's trailing tags
-                injectedXml += `<a:p><a:pPr algn="ctr"/><a:r>${style}<a:t xml:space="preserve">`;
+                // Re-open tags for XML validity
+                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
 
                 let result = shapeXml.replace(phRegex, () => injectedXml);
 
-                // Cleanup: remove the empty fragments created by the burst
-                result = result.replace(/<a:p><a:pPr[^>]*\/><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
+                // Cleanup fragment tags
+                result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
                 
-                // Ensure Autofit is applied to lyrics box
+                // Maintain Autofit
                 if (!result.includes('Autofit')) {
                     result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
                 }
