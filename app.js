@@ -626,30 +626,38 @@ const App = {
         return outList[newIdx];
     },
 
-    // --- UPDATED REPLACEMENT ENGINE (TAG CENTERING + BLOCK LOCK) ---
+    // --- AMENDED REPLACEMENT ENGINE (HYBRID LOGIC) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
-        
-        // Enhanced Regex to catch chords like F#m7, Bm/A, D2/F#
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
-                // Preserve template font style
+                // 1. Get the style (rPr) from the template to keep formatting (size/font/color)
                 const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
 
                 const rawLines = (replacement || '').split(/\r?\n/);
-                let newParagraphsXml = '';
+
+                // --- BRANCH A: Title and Copyright (PRESERVE TEMPLATE ALIGNMENT) ---
+                if (placeholder !== '[Lyrics and Chords]') {
+                    const escapedText = rawLines
+                        .map(l => this.escXml(l))
+                        .join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    
+                    return shapeXml.replace(phRegex, escapedText);
+                }
+
+                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT) ---
+                // Start by "bursting" out of the template's current paragraph
+                let injectedXml = `</a:t></a:r></a:p>`;
 
                 rawLines.forEach((line) => {
                     const trimmed = line.trim();
-                    
-                    // Handle empty lines (keep spacing)
                     if (trimmed === '') {
-                        newParagraphsXml += `<a:p><a:pPr algn="ctr"/><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        injectedXml += `<a:p><a:pPr algn="ctr"/><a:r>${style}<a:t> </a:t></a:r></a:p>`;
                         return;
                     }
 
@@ -657,20 +665,15 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
                     
-                    // ALIGNMENT LOGIC:
-                    // If it has chords and isn't a [Tag], align Left. Else, Center.
+                    // Specific Logic: Chords = Left, Lyrics/Tags = Center
                     let alignment = 'ctr';
-                    if (chords.length > 0 && !isTag) {
-                        // High confidence it's a chord line if chord count is high vs word count
-                        if (chords.length >= words.length * 0.4 || words.length < 3) {
-                            alignment = 'l';
-                        }
+                    if (chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3)) {
+                        alignment = 'l';
                     }
 
-                    // Escape and preserve exact spacing (critical for chords)
                     const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
 
-                    newParagraphsXml += `
+                    injectedXml += `
                         <a:p>
                             <a:pPr algn="${alignment}"/>
                             <a:r>
@@ -680,14 +683,15 @@ const App = {
                         </a:p>`;
                 });
 
-                // Inject into the text body of the shape
-                let result = shapeXml.replace(/<a:txBody>[\s\S]*?<\/a:txBody>/, (txBody) => {
-                    const bodyPr = txBody.match(/<a:bodyPr[^>]*>([\s\S]*?)<\/a:bodyPr>/)?.[0] || '<a:bodyPr/>';
-                    const lstStyle = txBody.match(/<a:lstStyle[^>]*\/>/)?.[0] || '<a:lstStyle/>';
-                    return `<a:txBody>${bodyPr}${lstStyle}${newParagraphsXml}</a:txBody>`;
-                });
+                // Re-open tags to maintain valid XML with the template's trailing tags
+                injectedXml += `<a:p><a:pPr algn="ctr"/><a:r>${style}<a:t xml:space="preserve">`;
 
-                // Ensure the text fits the box
+                let result = shapeXml.replace(phRegex, () => injectedXml);
+
+                // Cleanup: remove the empty fragments created by the burst
+                result = result.replace(/<a:p><a:pPr[^>]*\/><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
+                
+                // Ensure Autofit is applied to lyrics box
                 if (!result.includes('Autofit')) {
                     result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
                 }
