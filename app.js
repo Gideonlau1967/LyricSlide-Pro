@@ -626,85 +626,43 @@ const App = {
         return outList[newIdx];
     },
 
-   // --- AMENDED REPLACEMENT ENGINE (18PT CHORDS + NO BULLETS) ---
+    // --- REPLACEMENT ENGINE ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
-        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
-        return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
+        return xml.replace(/<p:sp>[\s\S]*?<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
 
-                const rawLines = (replacement || '').split(/\r?\n/);
-
-                // --- BRANCH A: Title and Copyright (SIMPLE REPLACE) ---
-                if (placeholder !== '[Lyrics and Chords]') {
-                    const escapedText = rawLines
-                        .map(l => this.escXml(l))
-                        .join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                    
-                    return shapeXml.replace(phRegex, escapedText);
-                }
-
-                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + 18PT CHORDS) ---
-                let injectedXml = `</a:t></a:r></a:p>`;
-
-                rawLines.forEach((line) => {
-                    const trimmed = line.trim();
-                    if (trimmed === '') {
-                        injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
-                        return;
-                    }
-
-                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
-                    const chords = line.match(chordRegex) || [];
-                    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-                    
-                    let alignment = 'ctr';
-                    let lineStyle = style; // Default to template style
-
-                    // Determine if it's a chord line
-                    const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
-
-                    if (isChordLine) {
-                        alignment = 'l';
-                        // FORCE 18pt (1800 units)
-                        if (lineStyle.includes('sz=')) {
-                            lineStyle = lineStyle.replace(/sz="\d+"/, 'sz="1800"');
-                        } else {
-                            // If template had no size defined, inject it into the tag
-                            lineStyle = lineStyle.replace('<a:rPr', '<a:rPr sz="1800"');
-                        }
-                    }
-
-                    const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
-
-                    injectedXml += `
-                        <a:p>
-                            <a:pPr algn="${alignment}">
-                                <a:buNone/>
-                            </a:pPr>
-                            <a:r>
-                                ${lineStyle}
-                                <a:t xml:space="preserve">${escapedLine}</a:t>
-                            </a:r>
-                        </a:p>`;
+                const lines = (replacement || '').split(/\r?\n/).map(l => this.escXml(l));
+                phRegex.lastIndex = 0;
+                let injected = '';
+                lines.forEach((line, idx) => {
+                    if (idx > 0) injected += `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`;
+                    injected += line;
                 });
 
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
-
-                let result = shapeXml.replace(phRegex, () => injectedXml);
-
-                result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
-                
-                // Final Autofit settings
-                if (!result.includes('Autofit')) {
-                    result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
+                // Manual shrink for long lyrics
+                if (placeholder === '[Lyrics and Chords]' && lines.length > 10) {
+                    const szMatch = style.match(/sz=\"(\d+)\"/);
+                    if (szMatch) {
+                        const scale = Math.max(0.6, 1 - (lines.length - 10) * 0.05);
+                        style = style.replace(/sz=\"\d+\"/, `sz="${Math.floor(parseInt(szMatch[1]) * scale)}"`);
+                    }
                 }
 
+                let result = shapeXml.replace(phRegex, () => {
+                    return `</a:t></a:r><a:r>${style}<a:t xml:space="preserve">${injected}</a:t></a:r><a:r>${style}<a:t xml:space="preserve">`;
+                }).replace(/<a:t xml:space="preserve"><\/a:t>/g, '').replace(/<a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r>/g, '');
+
+                if (result.includes('<a:noAutofit/>')) {
+                    result = result.replace('<a:noAutofit/>', '<a:normAutofit fontScale="75000" lnSpcReduction="15000"/>');
+                } else if (!result.includes('Autofit')) {
+                    result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="75000" lnSpcReduction="15000"/></a:bodyPr>');
+                }
                 return result;
             }
             return shapeXml;
