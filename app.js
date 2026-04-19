@@ -426,16 +426,28 @@ const App = {
             const generated = [];
 
             for (let i = 0; i < sections.length; i++) {
+                const sectionContent = sections[i].trim();
                 let slideXml = templateXml;
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Title]', title);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sections[i].trim());
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionContent);
 
                 const name = `song_gen_${i + 1}.xml`;
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
-                if (templateRelsXml) newZip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml);
-                generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name, path });
+
+                // --- NEW: Create Presenter Notes ---
+                const noteName = `notesSlideGen${i + 1}.xml`;
+                newZip.file(`ppt/notesSlides/${noteName}`, this.createNotesSlideXml(sectionContent));
+
+                // Create individual rels for the slide to link the note
+                const relXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/relationships">
+                    <Relationship Id="rIdNotes1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/${noteName}"/>
+                </Relationships>`;
+                newZip.file(`ppt/slides/_rels/${name}.rels`, relXml);
+
+                generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name, path, noteName });
             }
 
             this.syncPresentationRegistry(newZip, presXml, presRelsXml, generated);
@@ -484,30 +496,34 @@ const App = {
                         `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
                 }
 
-                // Step 2: Apply per-section font/size, shape by shape
+                // Step 2: Apply per-section font/size
                 if (anyFontChange) {
                     content = content.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeMatch, shapeContent) => {
-                        // Detect placeholder type
-                        const isTitle    = /<p:ph[^>]*type="(?:title|ctrTitle)"/.test(shapeContent);
-                        const isFooter   = /<p:ph[^>]*type="ftr"/.test(shapeContent);
-                        const isSkipped  = /<p:ph[^>]*type="(?:dt|sldNum)"/.test(shapeContent);
+                        const isTitle = /<p:ph[^>]*type="(?:title|ctrTitle)"/.test(shapeContent);
+                        const isFooter = /<p:ph[^>]*type="ftr"/.test(shapeContent);
+                        const isSkipped = /<p:ph[^>]*type="(?:dt|sldNum)"/.test(shapeContent);
                         if (isSkipped) return shapeMatch;
-
-                        // Also detect copyright by text content (for custom text boxes)
-                        const plainText  = shapeContent.replace(/<[^>]+>/g, '');
+                        const plainText = shapeContent.replace(/<[^>]+>/g, '');
                         const isCopyright = isFooter || /©|copyright|ccli/i.test(plainText);
-
                         let targetFont, targetSize;
-                        if (isTitle)          { targetFont = titleFont;  targetSize = titleSize;  }
-                        else if (isCopyright) { targetFont = copyFont;   targetSize = copySize;   }
-                        else                  { targetFont = lyricsFont; targetSize = lyricsSize; }
-
+                        if (isTitle) { targetFont = titleFont; targetSize = titleSize; }
+                        else if (isCopyright) { targetFont = copyFont; targetSize = copySize; }
+                        else { targetFont = lyricsFont; targetSize = lyricsSize; }
                         if (!targetFont && !targetSize) return shapeMatch;
                         return `<p:sp>${this.applyFontToShapeXml(shapeContent, targetFont, targetSize)}</p:sp>`;
                     });
                 }
-
                 zip.file(path, content);
+            }
+
+            // --- NEW: Transpose Notes ---
+            if (semitones !== 0) {
+                const noteFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
+                for (const path of noteFiles) {
+                    let noteXml = await zip.file(path).async('string');
+                    noteXml = noteXml.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
+                    zip.file(path, noteXml);
+                }
             }
 
             this.showLoading('Downloading...');
@@ -729,10 +745,24 @@ const App = {
         });
         newZip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(relsDoc));
 
-        const ctXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="pptx" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>';
-        let ctEntries = generated.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
-        // We actually need to keep the themes and masters in [Content_Types].xml. Simplified approach:
-        newZip.file('[Content_Types].xml', (ctXml + ctEntries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/><Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/><Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
+        const ctHeader = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="pptx" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>';
+        
+        // Register every generated Slide AND its corresponding Notes Slide
+        let ctEntries = generated.map(s => 
+            `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>` +
+            `<Override PartName="/ppt/notesSlides/${s.noteName}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>`
+        ).join('');
+
+        // Combine header, generated entries, and the mandatory master/theme overrides
+        const ctFinal = ctHeader + ctEntries + 
+            '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>' +
+            '<Override PartName="/ppt/notesMaster/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>' +
+            '<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>' +
+            '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>' +
+            '<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>' +
+            '</Types>';
+
+        newZip.file('[Content_Types].xml', ctFinal);
     },
 
     getPlaceholderRegexStr(ph) {
@@ -742,6 +772,25 @@ const App = {
     },
     escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
     escXml(s) { return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c])); },
+
+    // --- INSERT START ---
+    createNotesSlideXml(text) {
+        const lines = text.split(/\r?\n/).map(line => `<a:p><a:r><a:rPr lang="en-US"/><a:t>${this.escXml(line)}</a:t></a:r></a:p>`).join('');
+        return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+            <p:cSld><p:spTree>
+                <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+                <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+                <p:sp>
+                    <p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+                    <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${lines}</a:p></p:txBody>
+                </p:sp>
+            </p:spTree></p:cSld>
+            <p:clrMapOver r:id="rIdNotesMaster1"/>
+        </p:notes>`;
+    },
+    // --- INSERT END ---
+
     getSlideIds(xml) { let ids = [], m, r = /<p:sldId[^>]+id="([^"]+)"[^>]+r:id="([^"]+)"/g; while (m = r.exec(xml)) ids.push({id: m[1], rid: m[2]}); return ids; },
     getSlideRels(xml) { let rels = {}, m, r = /<Relationship[^>]+Id="([^"]+)"[^>]+Type="[^"]+slide"[^>]+Target="([^"]+)"/g; while (m = r.exec(xml)) rels[m[1]] = m[2]; return rels; }
 };
