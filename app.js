@@ -504,6 +504,8 @@ const App = {
         try {
             this.showLoading('Applying changes...');
             const zip = await JSZip.loadAsync(file);
+            
+            // 1. Process Slide Files (Text + Optional Fonts)
             const slideFiles = Object.keys(zip.files)
                 .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
                 .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
@@ -511,22 +513,20 @@ const App = {
             for (const path of slideFiles) {
                 let content = await zip.file(path).async('string');
 
-                // Step 1: Transpose chords in all <a:t> tags
+                // Transpose chords in slides
                 if (semitones !== 0) {
                     content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) =>
                         `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
                 }
 
-                // Step 2: Apply per-section font/size, shape by shape
+                // Apply font changes to slides
                 if (anyFontChange) {
                     content = content.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeMatch, shapeContent) => {
-                        // Detect placeholder type
                         const isTitle    = /<p:ph[^>]*type="(?:title|ctrTitle)"/.test(shapeContent);
                         const isFooter   = /<p:ph[^>]*type="ftr"/.test(shapeContent);
                         const isSkipped  = /<p:ph[^>]*type="(?:dt|sldNum)"/.test(shapeContent);
                         if (isSkipped) return shapeMatch;
 
-                        // Also detect copyright by text content (for custom text boxes)
                         const plainText  = shapeContent.replace(/<[^>]+>/g, '');
                         const isCopyright = isFooter || /©|copyright|ccli/i.test(plainText);
 
@@ -539,8 +539,23 @@ const App = {
                         return `<p:sp>${this.applyFontToShapeXml(shapeContent, targetFont, targetSize)}</p:sp>`;
                     });
                 }
-
                 zip.file(path, content);
+            }
+
+            // 2. NEW: Process Presenter Notes (Transpose Chords)
+            if (semitones !== 0) {
+                const notesFiles = Object.keys(zip.files)
+                    .filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
+
+                for (const path of notesFiles) {
+                    let notesContent = await zip.file(path).async('string');
+                    
+                    // Transpose chords inside the <a:t> tags of the presenter notes
+                    notesContent = notesContent.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) =>
+                        `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
+                    
+                    zip.file(path, notesContent);
+                }
             }
 
             this.showLoading('Downloading...');
