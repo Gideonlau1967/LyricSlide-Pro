@@ -435,6 +435,26 @@ const App = {
                 const name = `song_gen_${i + 1}.xml`;
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
+                
+    // 1. Rel: Slide -> NotesSlide 
+    const slideRelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/relationships">
+                    <Relationship Id="rIdNotes1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/${noteName}"/>
+                    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+                </Relationships>`;
+                
+    newZip.file(`ppt/slides/_rels/${name}.rels`, slideRelXml);
+
+    // 2. Rel: NotesSlide -> NotesMaster
+    const noteRelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/relationships">
+        <Relationship Id="rIdNotesMaster1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="../notesMaster/notesMaster1.xml"/>
+    </Relationships>`;
+    newZip.file(`ppt/notesSlides/_rels/${noteName}.rels`, noteRelXml);
+    // --- END OF SECTION ---
+
+    generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name, path, noteName });
+}
 
                 // --- NEW: Create Presenter Notes ---
                 const noteName = `notesSlideGen${i + 1}.xml`;
@@ -775,17 +795,24 @@ const App = {
 
     // --- INSERT START ---
     createNotesSlideXml(text) {
-        const lines = text.split(/\r?\n/).map(line => `<a:p><a:r><a:rPr lang="en-US"/><a:t>${this.escXml(line)}</a:t></a:r></a:p>`).join('');
+        const lines = text.split(/\r?\n/).map(line => 
+            `<a:p><a:r><a:rPr lang="en-US" smtClean="0"/><a:t>${this.escXml(line)}</a:t></a:r></a:p>`
+        ).join('');
+
         return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-            <p:cSld><p:spTree>
-                <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-                <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-                <p:sp>
-                    <p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
-                    <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${lines}</a:p></p:txBody>
-                </p:sp>
-            </p:spTree></p:cSld>
+            <p:cSld>
+                <p:spTree>
+                    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+                    <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+                    <!-- Body Placeholder for the actual text -->
+                    <p:sp>
+                        <p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder 1"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+                        <p:spPr/>
+                        <p:txBody><a:bodyPr/><a:lstStyle/><a:p>${lines}</a:p></p:txBody>
+                    </p:sp>
+                </p:spTree>
+            </p:cSld>
             <p:clrMapOver r:id="rIdNotesMaster1"/>
         </p:notes>`;
     },
