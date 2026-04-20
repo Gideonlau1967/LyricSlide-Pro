@@ -1,7 +1,7 @@
-/* LyricSlide Pro - Core Logic v19.0 (Stable Table + UI Versioning) */
+/* LyricSlide Pro - Core Logic v19.1 (Visible Table Fix) */
 
 const App = {
-    version: "v19.0 (Stable Table)",
+    version: "v19.1 (Visible Table)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -24,7 +24,6 @@ const App = {
     selectedTemplateFile: null, 
 
     init() {
-        // Display version in UI
         const verEl = document.getElementById('appVersion');
         if (verEl) verEl.textContent = this.version;
 
@@ -36,7 +35,6 @@ const App = {
         console.log(`App Initialized. ${this.version}`);
     },
 
-    // --- THEME MANAGEMENT ---
     theme: {
         defaults: { '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc', '--text-main': '#1e293b', '--card-accent': '#e2e8f0', '--preview-card-bg': '#ffffff', '--preview-chord-color': '#334155', '--preview-lyrics-color': '#1e293b' },
         init() {
@@ -52,34 +50,25 @@ const App = {
                     const id = e.target.id;
                     const map = { 'picker-primary': '--primary-color', 'picker-bg-start': '--bg-start', 'picker-bg-end': '--bg-end', 'picker-text': '--text-main', 'picker-card-accent': '--card-accent', 'picker-preview-bg': '--preview-card-bg', 'picker-chord': '--preview-chord-color', 'picker-lyrics': '--preview-lyrics-color' };
                     document.documentElement.style.setProperty(map[id], e.target.value);
-                    const current = {};
-                    Object.keys(App.theme.defaults).forEach(k => { current[k] = getComputedStyle(document.documentElement).getPropertyValue(k).trim(); });
-                    localStorage.setItem('lyric_theme', JSON.stringify(current));
                 });
             });
         }
     },
 
-    // --- TEMPLATE LIBRARY (Restored Stable Version) ---
     async loadDefaultTemplates() {
         const gallery = document.getElementById('templateGallery');
         try {
             const res = await fetch('./templates.json');
             const names = await res.json();
             document.getElementById('dirName').textContent = `${names.length} templates available`;
-
             gallery.innerHTML = '';
             const grid = document.createElement('div');
             grid.className = 'template-grid';
-
             names.forEach(name => {
                 const card = document.createElement('div');
                 card.className = 'template-card';
-                const thumbSrc = name.replace(/\.pptx$/i, '.png');
-                card.innerHTML = `<img class="template-thumb" src="${thumbSrc}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23eee%22/><text x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%22.3em%22 font-family=%22sans-serif%22 fill=%22%23999%22>PPTX</text></svg>'"><div class="template-card-name">${name.replace('.pptx','')}</div>`;
-                
-                card.addEventListener('click', async () => {
-                    card.style.opacity = '0.5';
+                card.innerHTML = `<img class="template-thumb" src="${name.replace('.pptx','.png')}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23eee%22/><text x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%22.3em%22 font-family=%22sans-serif%22 fill=%22%23999%22>PPTX</text></svg>'"><div class="template-card-name">${name.replace('.pptx','')}</div>`;
+                card.onclick = async () => {
                     const r = await fetch(`./${encodeURIComponent(name)}`);
                     const blob = await r.blob();
                     this.selectedTemplateFile = new File([blob], name, { type: blob.type });
@@ -87,15 +76,13 @@ const App = {
                     card.classList.add('selected');
                     document.getElementById('selectedTemplateInfo').classList.remove('hidden');
                     document.getElementById('selectedTemplateName').textContent = name;
-                    card.style.opacity = '1';
-                });
+                };
                 grid.appendChild(card);
             });
             gallery.appendChild(grid);
         } catch (e) { gallery.innerHTML = 'Library load failed.'; }
     },
 
-    // --- GENERATION ENGINE ---
     async generate() {
         if (!this.selectedTemplateFile || !this.elements.lyricsInput.value) return alert('Select template and enter lyrics.');
         try {
@@ -104,15 +91,12 @@ const App = {
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
             const slideRels = this.getSlideRels(presRelsXml);
-            const slideIds = this.getSlideIds(presXml);
-            const templateRelPath = slideRels[slideIds[0].rid];
+            const templateRelPath = slideRels[this.getSlideIds(presXml)[0].rid];
             const templateXml = await zip.file(`ppt/${templateRelPath}`).async('string');
             const templateRelsXml = await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string');
             
             const sections = ("\n" + this.elements.lyricsInput.value).split(/\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/).filter(s => s.trim() !== '');
             const generated = [];
-
-            // Add Version Stamp to copyright
             const copyrightText = (this.elements.copyrightInfo.value ? this.elements.copyrightInfo.value + " | " : "") + "Generated by " + this.version;
 
             for (let i = 0; i < sections.length; i++) {
@@ -129,31 +113,42 @@ const App = {
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
             saveAs(await zip.generateAsync({ type: 'blob' }), `${(this.elements.songTitle.value || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
             this.hideLoading();
-        } catch (e) { console.error(e); this.hideLoading(); alert("Error during generation."); }
+        } catch (e) { this.hideLoading(); alert("Error during generation."); }
     },
 
-    // --- SMART TABLE INJECTION ---
+    // --- RE-BUILT REPLACEMENT ENGINE (Fixes the "Invisible Table" Bug) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
-        const inner = placeholder.replace(/[\[\]]/g, '').trim();
-        const fuzzy = inner.split('').map(c => c === ' ' ? '\\s+' : `${this.escRegex(c)}(?:<[^>]+>)*`).join('(?:<[^>]+>)*');
-        const phRegex = new RegExp('\\[' + '(?:<[^>]+>)*' + fuzzy + '(?:<[^>]+>)*' + '\\]', 'gi');
+        // Build regex that ignores case AND ignores internal XML tags between letters
+        const createFuzzyRegex = (ph) => {
+            const inner = ph.replace(/[\[\]]/g, '').trim();
+            // Handle optional spaces around the word (to match "[ TITLE ]" or "[Title]")
+            const fuzzy = inner.split('').map(c => 
+                c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`
+            ).join('(?:<[^>]+>)*');
+            return new RegExp('\\[' + '(?:<[^>]+>|\\s)*' + fuzzy + '(?:<[^>]+>|\\s)*' + '\\]', 'gi');
+        };
+
+        const phRegex = createFuzzyRegex(placeholder);
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
-        return xml.replace(/<(p:sp|p:graphicFrame)>([\s\S]*?)<\/\1>/g, (fullFrame) => {
-            if (phRegex.test(fullFrame)) {
-                const latinMatch = fullFrame.match(/<a:latin typeface="([^"]+)"/);
+        return xml.replace(/<(p:sp|p:graphicFrame)>([\s\S]*?)<\/\1>/g, (fullFrame, tagName, innerContent) => {
+            phRegex.lastIndex = 0;
+            if (phRegex.test(innerContent)) {
+                
+                const latinMatch = innerContent.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
-                const sizeMatch = fullFrame.match(/sz="(\d+)"/);
+                const sizeMatch = innerContent.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
+                // Non-lyrics (Title/Copyright)
                 if (!/Lyrics/i.test(placeholder)) {
-                    const rPrMatch = fullFrame.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
+                    const rPrMatch = innerContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
                     const escapedText = (replacement || '').split(/\r?\n/).map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                    return fullFrame.replace(phRegex, escapedText);
+                    return `<${tagName}>${innerContent.replace(phRegex, escapedText)}</${tagName}>`;
                 }
 
-                // Building Rows
+                // Table Logic
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
                 lines.forEach((line) => {
@@ -162,17 +157,16 @@ const App = {
                     if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
                         tableRowsXml += this.createTableCellXml(trimmed, templateFont, Math.round(templateSize * 0.8), "ctr", 400000);
                     } else if (line.match(chordRegex)) {
-                        // Chords = Courier New + Left Align
                         tableRowsXml += this.createTableCellXml(this.escXml(line).replace(/ /g, '&#160;'), "Courier New", templateSize, "l", 400000);
                     } else {
-                        // Lyrics = Template Font + Centered
                         tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
                     }
                 });
 
-                // Splice rows into original table header/footer
-                const xmlParts = fullFrame.split(/<a:tr[\s\S]*?<\/a:tr>/);
-                return `<p:graphicFrame>${xmlParts[0]}${tableRowsXml}${xmlParts[xmlParts.length - 1]}</p:graphicFrame>`;
+                // FIXED: Split the content ONLY, and re-wrap in the existing tagName to avoid double tags
+                const rowsSplit = innerContent.split(/<a:tr[\s\S]*?<\/a:tr>/);
+                const newInner = `${rowsSplit[0]}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}`;
+                return `<${tagName}>${newInner}</${tagName}>`;
             }
             return fullFrame;
         });
@@ -182,7 +176,6 @@ const App = {
         return `<a:tr h="${height}"><a:tc><a:txBody><a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/><a:p><a:pPr algn="${align}"/><a:r><a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr><a:t xml:space="preserve">${text}</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB><a:solidFill><a:noFill/></a:solidFill></a:tcPr></a:tc></a:tr>`;
     },
 
-    // --- HELPERS ---
     showLoading(t) { this.elements.loadingText.textContent = t; this.elements.loadingOverlay.style.display = 'flex'; },
     hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
     escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
@@ -201,7 +194,7 @@ const App = {
         let entries = gen.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
         zip.file('[Content_Types].xml', (head + entries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
     },
-    async transpose() { /* Optional Transpose Logic */ },
+    async transpose() { /* Placeholder */ },
     transposeLine(t, s) { return t; }
 };
 
