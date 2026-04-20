@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: DYNAMIC CENTERING & PRECISION POSITIONING ---
+// --- TABLE METHOD: FIXED ANCHOR PRECISION (WIDESCREEN 16:9) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -698,27 +698,26 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. CALCULATE TABLE WIDTH AND SLIDE CENTER
-                const SLIDE_WIDTH_16_9 = 12192000; // Total Widescreen Width
+                // 2. WIDESCREEN CONSTANTS (16:9)
+                const MAX_SLIDE_WIDTH = 12192000; 
                 const lines = (replacement || '').split(/\r?\n/);
                 
-                // Find longest line to define the box width
+                // Find the longest line to calculate how much to "push" the block to the center
                 let maxChars = 0;
                 lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
 
-                // Courier New at 24pt is approx 120,000 EMUs per character
-                // We use this to define the "Safe Box" for the song
-                const charWidth = Math.round((parseInt(templateSize) / 2400) * 120000);
-                const tableWidth = Math.min(SLIDE_WIDTH_16_9 - 400000, maxChars * charWidth);
-                
-                // CRUCIAL: This places the table container exactly in the center of the slide
-                const offsetX = (SLIDE_WIDTH_16_9 - tableWidth) / 2;
+                // We calculate a Left Margin (indent) to simulate centering
+                // Average char width is roughly 125k EMUs for 24pt
+                const charWidth = Math.round((parseInt(templateSize) / 2400) * 125000);
+                const estimatedSongWidth = maxChars * charWidth;
+                const centerPush = Math.max(0, (MAX_SLIDE_WIDTH - estimatedSongWidth) / 2);
 
                 let tableRowsXml = '';
 
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i];
                     let trimmed = line.trim();
+                    
                     if (trimmed === '') {
                         tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`;
                         continue;
@@ -728,12 +727,14 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // 3. FONT & ALIGNMENT
-                    // Chords: Courier New + LEFT ALIGN (to keep your spacing precise)
-                    // Lyrics: Template Font + CENTER ALIGN (centered within the box)
-                    let typeface = isChordLine ? "Courier New" : templateFont;
-                    let fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
-                    let alignment = isChordLine ? 'l' : 'ctr';
+                    // 3. STYLE & ALIGNMENT
+                    // Every line is LEFT ALIGNED so the spaces work.
+                    // The marL (Left Margin) pushes the whole block to the center.
+                    const typeface = isChordLine ? "Courier New" : templateFont;
+                    const fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
+                    
+                    // We apply the "Center Push" to every line so they all start at the same X-coordinate
+                    const indent = ` marL="${Math.round(centerPush)}"`;
 
                     const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
 
@@ -743,7 +744,7 @@ const App = {
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="${alignment}"><a:buNone/></a:pPr>
+                                        <a:pPr algn="l"${indent}><a:buNone/></a:pPr>
                                         <a:r>
                                             <a:rPr sz="${fontSize}" lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
@@ -758,7 +759,8 @@ const App = {
                         </a:tr>`;
                 }
 
-                // 4. GENERATE THE XML (Centered on slide via offsetX)
+                // 4. GENERATE FULL-WIDTH TABLE
+                // Setting x="0" and cx="MAX_SLIDE_WIDTH" prevents text from wrapping
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -766,14 +768,14 @@ const App = {
                         <p:cNvGraphicFramePr/><p:nvPr/>
                     </p:nvGraphicFramePr>
                     <p:xfm>
-                        <a:off x="${Math.round(offsetX)}" y="1100000"/> 
-                        <a:ext cx="${tableWidth}" cy="5000000"/>
+                        <a:off x="0" y="1100000"/> 
+                        <a:ext cx="${MAX_SLIDE_WIDTH}" cy="5000000"/>
                     </p:xfm>
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
                                 <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
-                                <a:tblGrid><a:gridCol w="${tableWidth}"/></a:tblGrid>
+                                <a:tblGrid><a:gridCol w="${MAX_SLIDE_WIDTH}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
                         </a:graphicData>
