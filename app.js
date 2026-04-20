@@ -674,8 +674,8 @@ const App = {
         return outList[newIdx];
     },
 
-   // --- TABLE METHOD: PRECISE CHORD POSITIONING ---
-      lockInStyleAndReplace(xml, placeholder, replacement) {
+   // --- TABLE METHOD: CENTRALIZED TAGS, LYRICS, AND POSITIONED CHORDS ---
+    lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
@@ -683,14 +683,13 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. EXTRACT TEMPLATE FONT & SIZE
+                // 1. EXTRACT TEMPLATE SETTINGS
                 const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
-                const templateFont = latinMatch ? latinMatch[1] : "Arial"; // Fallback to Arial
-                
+                const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                // --- BRANCH A: Title and Copyright (Standard Replace) ---
+                // Handle Title and Copyright Info (Simple Replacement)
                 if (placeholder !== '[Lyrics and Chords]') {
                     const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -700,48 +699,62 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // --- BRANCH B: Lyrics and Chords (Table Method) ---
+                // 2. PROCESS LINES
                 const lines = (replacement || '').split(/\r?\n/);
-                const tableWidth = 9144000; // Full width of a standard slide (in EMUs)
+                const tableWidth = 9144000; // Full 16:9 Slide Width
                 let tableRowsXml = '';
 
-                lines.forEach((line) => {
-                    const trimmed = line.trim();
+                for (let i = 0; i < lines.length; i++) {
+                    let line = lines[i];
+                    let trimmed = line.trim();
+                    
                     if (trimmed === '') {
-                        // Empty line spacer
                         tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`;
-                        return;
+                        continue;
                     }
 
+                    // Identify Line Type
                     const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
                     const chords = line.match(chordRegex) || [];
-                    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-                    
-                    // Logic: Is this a chord line?
-                    const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
-                    
-                    // FONT SELECTION
-                    const typeface = isChordLine ? "Courier New" : templateFont;
-                    const fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
-                    const isBold = isTag ? ' b="1"' : '';
+                    const isChordLine = chords.length > 0 && !isTag;
 
-                    // ALIGNMENT
-                    // To keep chords positioned via spaces, the internal text MUST be left-aligned.
-                    // The table itself is centered on the slide.
-                    const alignment = 'l'; 
+                    // Style Logic
+                    let typeface = templateFont;
+                    let fontSize = templateSize;
+                    let isBoldAttr = ''; // Left empty as requested
+                    let processedText = line;
 
-                    // Replace leading/multiple spaces with non-breaking spaces
-                    const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
+                    if (isTag) {
+                        // Section Headers: [Chorus], [Verse] 
+                        // Now uses template font, normal weight, and centered.
+                        fontSize = templateSize; 
+                    } else if (isChordLine) {
+                        // Chord Lines: Use Courier New for character-width precision
+                        typeface = "Courier New";
+                        fontSize = Math.round(parseInt(templateSize) * 0.8);
+                        
+                        // PRECISION ALIGNMENT: 
+                        // Pad chord line with trailing spaces to match length of lyric line below.
+                        // This forces both lines to have the same "center," keeping the chord locked to the word.
+                        if (lines[i+1] && !lines[i+1].trim().startsWith('[')) {
+                            const lyricBelow = lines[i+1];
+                            const diff = lyricBelow.length - line.length;
+                            if (diff > 0) processedText = line + " ".repeat(diff);
+                        }
+                    }
+
+                    // Replace standard spaces with non-breaking spaces for XML rendering stability
+                    const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
-                        <a:tr h="400000">
+                        <a:tr h="450000">
                             <a:tc>
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="${alignment}"><a:buNone/></a:pPr>
+                                        <a:pPr algn="ctr"><a:buNone/></a:pPr>
                                         <a:r>
-                                            <a:rPr sz="${fontSize}"${isBold} lang="en-US">
+                                            <a:rPr sz="${fontSize}"${isBoldAttr} lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
                                                 <a:cs typeface="${typeface}"/>
                                             </a:rPr>
@@ -752,28 +765,24 @@ const App = {
                                 <a:tcPr/>
                             </a:tc>
                         </a:tr>`;
-                });
+                }
 
-                // Generate GraphicFrame (Invisible Table)
-                // off x="0" and cx="9144000" covers the full width of a standard 16:9 slide
+                // 3. GENERATE THE INVISIBLE TABLE
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
                         <p:cNvPr id="1025" name="LyricsTable"/>
-                        <p:cNvGraphicFramePr/>
-                        <p:nvPr/>
+                        <p:cNvGraphicFramePr/><p:nvPr/>
                     </p:nvGraphicFramePr>
                     <p:xfm>
-                        <a:off x="457200" y="1200000"/> 
-                        <a:ext cx="8229600" cy="4500000"/>
+                        <a:off x="0" y="1000000"/> 
+                        <a:ext cx="${tableWidth}" cy="5000000"/>
                     </p:xfm>
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
-                                <a:tblPr firstRow="0" bandRow="0">
-                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
-                                </a:tblPr>
-                                <a:tblGrid><a:gridCol w="8229600"/></a:tblGrid>
+                                <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
+                                <a:tblGrid><a:gridCol w="${tableWidth}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
                         </a:graphicData>
