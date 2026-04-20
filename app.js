@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "1.0",
+    version: "1.1 Left Aligned",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
