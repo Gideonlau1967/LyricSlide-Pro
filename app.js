@@ -1,8 +1,8 @@
-/* LyricSlide Pro - Core Logic v15.3 (Presenter Notes Preview) */ 
+/* LyricSlide Pro - Core Logic v15.4 (Presenter Notes Preview) */ 
 
 const App = {
     // --- APP METADATA ---
-   version: "v15.3 (Presenter Notes Preview)", 
+   version: "v15.4 (Presenter Notes Preview Line Break)", 
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -171,7 +171,7 @@ const App = {
 
     async loadForPreview(file) {
         try {
-            this.showLoading('Reading Presenter Notes...');
+            this.showLoading('Extracting Presenter Notes...');
             const zip = await JSZip.loadAsync(file);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const slideIds = this.getSlideIds(presXml);
@@ -186,7 +186,7 @@ const App = {
                 const slideFileName = slideRelPath.split('/').pop();
                 const slidePath = `ppt/${slideRelPath}`;
                 
-                // Get Title from Slide
+                // Get Song Title from Slide
                 const slideXml = await zip.file(slidePath).async('string');
                 if (!globalSongTitle) {
                     const titleMatch = slideXml.match(/<a:t>([^<]+)<\/a:t>/);
@@ -196,27 +196,46 @@ const App = {
                 // Find Notes for this slide
                 const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
                 const relsFile = zip.file(relsPath);
-                let noteText = "";
+                let slideLines = []; // Store lines for this specific slide
 
                 if (relsFile) {
                     const relsXml = await relsFile.async('string');
                     const notesPath = this.getNotesRelPath(relsXml);
+                    
                     if (notesPath && zip.file(notesPath)) {
                         const notesXml = await zip.file(notesPath).async('string');
-                        const tRegex = /<a:t[^>]*>(.*?)<\/a:t>/g;
-                        let tMatch;
-                        while ((tMatch = tRegex.exec(notesXml)) !== null) {
-                            const txt = this.unescXml(tMatch[1]);
-                            if (!/^\d+$/.test(txt.trim())) noteText += txt + " ";
+                        
+                        // PARSE BY PARAGRAPH to preserve line breaks and prevent duplication
+                        const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
+                        let pMatch;
+                        while ((pMatch = pRegex.exec(notesXml)) !== null) {
+                            const pContent = pMatch[1];
+                            const tRegex = /<a:t[^>]*>(.*?)<\/a:t>/g;
+                            let tMatch;
+                            let lineText = "";
+                            
+                            while ((tMatch = tRegex.exec(pContent)) !== null) {
+                                lineText += this.unescXml(tMatch[1]);
+                            }
+
+                            const trimmed = lineText.trim();
+                            // Filter out common PPT junk like slide numbers or empty lines
+                            if (trimmed && !/^\d+$/.test(trimmed)) {
+                                slideLines.push({
+                                    text: lineText,
+                                    alignment: 'left', // FORCE LEFT ALIGN
+                                    isTitle: false
+                                });
+                            }
                         }
                     }
                 }
+
+                if (slideLines.length === 0) {
+                    slideLines.push({ text: "(No notes for this slide)", alignment: 'left', isTitle: false });
+                }
                 
-                this.originalSlides.push([{
-                    text: noteText.trim() || "(No notes for this slide)",
-                    alignment: 'left',
-                    isTitle: false
-                }]);
+                this.originalSlides.push(slideLines);
             }
 
             this.songTitle = globalSongTitle;
@@ -250,21 +269,21 @@ const App = {
             card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left sticky left-0">Slide ${idx + 1}</div>`;
 
             const contentDiv = document.createElement('div');
-            contentDiv.className = 'slide-content'; // TARGET FOR ZOOM
-                slideData.forEach((para, pIdx) => {
-                    const text = para.text;
-                    const isTitle = para.isTitle || (songTitle && text.trim().toLowerCase() === songTitle.toLowerCase());
-                    const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
-                    
-                    if (text.trim() && !isMetadata && !isTitle) {
-                        const lineDiv = document.createElement('div');
-                        lineDiv.style.textAlign = para.alignment;
-                        lineDiv.style.minHeight = '1.2em';
-                        const transposed = this.transposeLine(para.text, semitones);
-                        lineDiv.innerHTML = this.renderChordHTML(transposed);
-                        contentDiv.appendChild(lineDiv);
-                    }
-                });
+            contentDiv.className = 'slide-content'; 
+
+            slideData.forEach((para) => {
+                const lineDiv = document.createElement('div');
+                
+                // 1. Force Left Align and preserve chord spacing
+                lineDiv.style.textAlign = para.alignment || 'left';
+                lineDiv.style.minHeight = '1.2em';
+                lineDiv.style.whiteSpace = 'pre-wrap'; // This preserves your chord spacing/line breaks
+                lineDiv.style.fontFamily = 'monospace'; // Optional: makes chord alignment more predictable
+                
+                const transposed = this.transposeLine(para.text, semitones);
+                lineDiv.innerHTML = this.renderChordHTML(transposed);
+                contentDiv.appendChild(lineDiv);
+            });
             
             if (contentDiv.children.length > 0) {
                 card.appendChild(contentDiv);
