@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: LEFT-ALIGN CHORDS + CENTERED LYRIC CONTAINER ---
+// --- TABLE METHOD: WIDESCREEN (16:9) OPTIMIZED ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -698,16 +698,18 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. CALCULATE TABLE WIDTH BASED ON LONGEST LINE
+                // 2. WIDESCREEN DIMENSIONS (16:9)
+                const MAX_SLIDE_WIDTH = 12192000; // 13.33 inches in EMUs
                 const lines = (replacement || '').split(/\r?\n/);
+                
+                // Calculate longest line for dynamic table width
                 let maxChars = 0;
                 lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
 
-                // Constant: ~120000 EMUs per character for a standard 24pt font
-                // This ensures the table is only as wide as the lyrics
+                // Width heuristic: approx 125,000 EMUs per char for 24pt font
                 const emuPerChar = Math.round((parseInt(templateSize) / 2400) * 125000);
-                const tableWidth = Math.min(9144000, maxChars * emuPerChar);
-                const offsetX = Math.max(0, (9144000 - tableWidth) / 2);
+                const tableWidth = Math.min(MAX_SLIDE_WIDTH - 914400, maxChars * emuPerChar);
+                const offsetX = (MAX_SLIDE_WIDTH - tableWidth) / 2;
 
                 let tableRowsXml = '';
 
@@ -724,19 +726,18 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // 3. APPLY ALIGNMENT LOGIC
-                    // Chords: Left Align (as requested)
-                    // Lyrics/Tags: Center Align
+                    // 3. FONT & ALIGNMENT LOGIC
                     let typeface = templateFont;
                     let fontSize = templateSize;
-                    let alignment = 'ctr'; 
+                    let alignment = 'ctr'; // Default for lyrics and [Tags]
 
                     if (isChordLine) {
-                        typeface = "Courier New";
+                        typeface = "Courier New"; // Monospaced for precision
                         fontSize = Math.round(parseInt(templateSize) * 0.8);
-                        alignment = 'l'; // CHORDS ARE LEFT ALIGNED
+                        alignment = 'l'; // Chords MUST be left-aligned to respect spaces
                     }
 
+                    // Convert spaces to Non-Breaking Spaces so PPT doesn't collapse them
                     const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
@@ -760,7 +761,7 @@ const App = {
                         </a:tr>`;
                 }
 
-                // 4. GENERATE TABLE (Centered on Slide, but text inside is mixed)
+                // 4. GENERATE GRAPHIC FRAME (Centered Table)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -774,7 +775,9 @@ const App = {
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
-                                <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
+                                <a:tblPr firstRow="0" bandRow="0">
+                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
+                                </a:tblPr>
                                 <a:tblGrid><a:gridCol w="${tableWidth}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
