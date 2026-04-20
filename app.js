@@ -1,6 +1,7 @@
-/* LyricSlide Pro - Core Logic v12 (Integrated Generation & Transposition) */
+/* LyricSlide Pro */
 
 const App = {
+    version: "1.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -26,10 +27,16 @@ const App = {
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
-        
+
         this.theme.init();
         this.loadDefaultTemplates(); // Auto-load from templates.json
         window.LyricApp = this;
+
+        const versionEl = document.getElementById('appVersion');
+        if (versionEl) {
+            versionEl.textContent = this.version;
+        }
+        
         console.log("App Initialized. Version 15.0 (Auto-Template)");
     },
 
