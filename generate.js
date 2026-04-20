@@ -1,7 +1,7 @@
-/* LyricSlide Pro - generate.js (v21.4 - Transparent Table & Fixed Chord Styling) */
+/* LyricSlide Pro - generate.js (v21.5 - Transparent Table & Fixed Chord Styling) */
 
 const App = {
-    version: "v21.4 (Final Logic)",
+    version: "v21.5",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
