@@ -674,36 +674,42 @@ const App = {
         return outList[newIdx];
     },
 
-   // --- AMENDED REPLACEMENT ENGINE (18PT CHORDS + NO BULLETS) ---
-    lockInStyleAndReplace(xml, placeholder, replacement) {
+   // --- TABLE METHOD: PRECISE CHORD POSITIONING ---
+      lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
-                const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
-                const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
-                let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
+                
+                // 1. EXTRACT TEMPLATE FONT & SIZE
+                const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
+                const templateFont = latinMatch ? latinMatch[1] : "Arial"; // Fallback to Arial
+                
+                const sizeMatch = shapeXml.match(/sz="(\d+)"/);
+                const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                const rawLines = (replacement || '').split(/\r?\n/);
-
-                // --- BRANCH A: Title and Copyright (SIMPLE REPLACE) ---
+                // --- BRANCH A: Title and Copyright (Standard Replace) ---
                 if (placeholder !== '[Lyrics and Chords]') {
-                    const escapedText = rawLines
+                    const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
+                    let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
+                    const escapedText = (replacement || '').split(/\r?\n/)
                         .map(l => this.escXml(l))
                         .join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                    
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + 18PT CHORDS) ---
-                let injectedXml = `</a:t></a:r></a:p>`;
+                // --- BRANCH B: Lyrics and Chords (Table Method) ---
+                const lines = (replacement || '').split(/\r?\n/);
+                const tableWidth = 9144000; // Full width of a standard slide (in EMUs)
+                let tableRowsXml = '';
 
-                rawLines.forEach((line) => {
+                lines.forEach((line) => {
                     const trimmed = line.trim();
                     if (trimmed === '') {
-                        injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        // Empty line spacer
+                        tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`;
                         return;
                     }
 
@@ -711,54 +717,72 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
                     
-                    let alignment = 'ctr';
-                    let lineStyle = style; // Default to template style
-
-                    // Determine if it's a chord line
+                    // Logic: Is this a chord line?
                     const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
+                    
+                    // FONT SELECTION
+                    const typeface = isChordLine ? "Courier New" : templateFont;
+                    const fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
+                    const isBold = isTag ? ' b="1"' : '';
 
-                    if (isChordLine) {
-                        alignment = 'l';
-                        // FORCE 18pt (1800 units)
-                        if (lineStyle.includes('sz=')) {
-                            lineStyle = lineStyle.replace(/sz="\d+"/, 'sz="1800"');
-                        } else {
-                            // If template had no size defined, inject it into the tag
-                            lineStyle = lineStyle.replace('<a:rPr', '<a:rPr sz="1800"');
-                        }
-                    }
+                    // ALIGNMENT
+                    // To keep chords positioned via spaces, the internal text MUST be left-aligned.
+                    // The table itself is centered on the slide.
+                    const alignment = 'l'; 
 
-                    const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
+                    // Replace leading/multiple spaces with non-breaking spaces
+                    const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
 
-                    injectedXml += `
-                        <a:p>
-                            <a:pPr algn="${alignment}">
-                                <a:buNone/>
-                            </a:pPr>
-                            <a:r>
-                                ${lineStyle}
-                                <a:t xml:space="preserve">${escapedLine}</a:t>
-                            </a:r>
-                        </a:p>`;
+                    tableRowsXml += `
+                        <a:tr h="400000">
+                            <a:tc>
+                                <a:txBody>
+                                    <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
+                                    <a:p>
+                                        <a:pPr algn="${alignment}"><a:buNone/></a:pPr>
+                                        <a:r>
+                                            <a:rPr sz="${fontSize}"${isBold} lang="en-US">
+                                                <a:latin typeface="${typeface}"/>
+                                                <a:cs typeface="${typeface}"/>
+                                            </a:rPr>
+                                            <a:t xml:space="preserve">${escapedLine}</a:t>
+                                        </a:r>
+                                    </a:p>
+                                </a:txBody>
+                                <a:tcPr/>
+                            </a:tc>
+                        </a:tr>`;
                 });
 
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
-
-                let result = shapeXml.replace(phRegex, () => injectedXml);
-
-                result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
-                
-                // Final Autofit settings
-                if (!result.includes('Autofit')) {
-                    result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
-                }
-
-                return result;
+                // Generate GraphicFrame (Invisible Table)
+                // off x="0" and cx="9144000" covers the full width of a standard 16:9 slide
+                return `
+                <p:graphicFrame>
+                    <p:nvGraphicFramePr>
+                        <p:cNvPr id="1025" name="LyricsTable"/>
+                        <p:cNvGraphicFramePr/>
+                        <p:nvPr/>
+                    </p:nvGraphicFramePr>
+                    <p:xfm>
+                        <a:off x="457200" y="1200000"/> 
+                        <a:ext cx="8229600" cy="4500000"/>
+                    </p:xfm>
+                    <a:graphic>
+                        <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+                            <a:tbl>
+                                <a:tblPr firstRow="0" bandRow="0">
+                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
+                                </a:tblPr>
+                                <a:tblGrid><a:gridCol w="8229600"/></a:tblGrid>
+                                ${tableRowsXml}
+                            </a:tbl>
+                        </a:graphicData>
+                    </a:graphic>
+                </p:graphicFrame>`;
             }
             return shapeXml;
         });
     },
-
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
         const sldIdLst = '<p:sldIdLst>' + generated.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>';
         newZip.file('ppt/presentation.xml', presXml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, sldIdLst));
