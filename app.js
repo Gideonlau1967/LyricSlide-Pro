@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: FULL-WIDTH SLIDE WITH MATHEMATICAL CENTERING ---
+// --- FINAL TABLE METHOD: INHERITS POSITION & LOCKS ALIGNMENT ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -683,7 +683,16 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. EXTRACT TEMPLATE SETTINGS
+                // 1. EXTRACT TEMPLATE POSITION & FONT
+                // We "steal" the X, Y, and Width from your template's text box
+                const xMatch = shapeXml.match(/<a:off x="(\d+)"/);
+                const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
+                const cxMatch = shapeXml.match(/<a:ext cx="(\d+)"/);
+                
+                const posX = xMatch ? xMatch[1] : "457200";
+                const posY = yMatch ? yMatch[1] : "1143000";
+                const posWidth = cxMatch ? cxMatch[1] : "8229600";
+
                 const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
@@ -698,27 +707,13 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. WIDESCREEN CONSTANTS (16:9)
-                const MAX_SLIDE_WIDTH = 12192000; 
+                // 2. PROCESS SONG LINES
                 const lines = (replacement || '').split(/\r?\n/);
-                
-                // Find longest line to calculate the "Starting Margin"
-                let maxChars = 0;
-                lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
-
-                // Constant: ~115,000 EMUs per char for standard fonts.
-                const charWidth = Math.round((parseInt(templateSize) / 2400) * 115000);
-                const estimatedSongWidth = maxChars * charWidth;
-                
-                // This is the mathematical "Push" to center the block on the slide
-                const centerMargin = Math.max(0, (MAX_SLIDE_WIDTH - estimatedSongWidth) / 2);
-
                 let tableRowsXml = '';
 
                 for (let i = 0; i < lines.length; i++) {
                     let line = lines[i];
                     let trimmed = line.trim();
-                    
                     if (trimmed === '') {
                         tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`;
                         continue;
@@ -728,15 +723,21 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // 3. STYLE & ALIGNMENT
-                    // Every line is LEFT ALIGNED to keep the chord-to-word relationship.
-                    // The marL (Margin Left) creates the illusion of centering.
-                    const typeface = isChordLine ? "Courier New" : templateFont;
-                    const fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
-                    const alignment = "l"; // STRICT LEFT ALIGN
+                    let typeface = templateFont;
+                    let fontSize = templateSize;
+                    let processedText = line;
 
-                    // Convert spaces to Non-Breaking Spaces so PPT doesn't collapse them
-                    const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
+                    // ALIGNMENT LOCK: Ensure Chord and Lyric lines have same character count
+                    if (isChordLine && lines[i+1] && !lines[i+1].trim().startsWith('[')) {
+                        const lyricLine = lines[i+1];
+                        const maxLen = Math.max(line.length, lyricLine.length);
+                        processedText = line.padEnd(maxLen, ' ');
+                        lines[i+1] = lyricLine.padEnd(maxLen, ' '); // Sync the next line's length
+                        typeface = "Courier New"; // Monospace is required for precision
+                        fontSize = Math.round(parseInt(templateSize) * 0.85);
+                    }
+
+                    const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
                         <a:tr h="450000">
@@ -744,9 +745,7 @@ const App = {
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="${alignment}" marL="${Math.round(centerMargin)}">
-                                            <a:buNone/>
-                                        </a:pPr>
+                                        <a:pPr algn="ctr"><a:buNone/></a:pPr>
                                         <a:r>
                                             <a:rPr sz="${fontSize}" lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
@@ -756,17 +755,12 @@ const App = {
                                         </a:r>
                                     </a:p>
                                 </a:txBody>
-                                <a:tcPr>
-                                    <a:lnL w="0"><a:noFill/></a:lnL>
-                                    <a:lnR w="0"><a:noFill/></a:lnR>
-                                    <a:lnT w="0"><a:noFill/></a:lnT>
-                                    <a:lnB w="0"><a:noFill/></a:lnB>
-                                </a:tcPr>
+                                <a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB></a:tcPr>
                             </a:tc>
                         </a:tr>`;
                 }
 
-                // 4. GENERATE FULL-WIDTH TABLE (Invisible Borders)
+                // 3. GENERATE TABLE (Placed exactly where the template placeholder was)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -774,14 +768,14 @@ const App = {
                         <p:cNvGraphicFramePr/><p:nvPr/>
                     </p:nvGraphicFramePr>
                     <p:xfm>
-                        <a:off x="0" y="1100000"/> 
-                        <a:ext cx="${MAX_SLIDE_WIDTH}" cy="5000000"/>
+                        <a:off x="${posX}" y="${posY}"/> 
+                        <a:ext cx="${posWidth}" cy="5000000"/>
                     </p:xfm>
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
                                 <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
-                                <a:tblGrid><a:gridCol w="${MAX_SLIDE_WIDTH}"/></a:tblGrid>
+                                <a:tblGrid><a:gridCol w="${posWidth}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
                         </a:graphicData>
