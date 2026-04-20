@@ -718,7 +718,7 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
                     
-                    let alignment = 'ctr';
+                    let alignment = 'l';
                     let lineStyle = style; // Default to template style
 
                     // Determine if it's a chord line
@@ -749,7 +749,7 @@ const App = {
                         </a:p>`;
                 });
 
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
+                injectedXml += `<a:p><a:pPr algn="l"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
 
                 let result = shapeXml.replace(phRegex, () => injectedXml);
 
