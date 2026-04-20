@@ -30,6 +30,11 @@ const App = {
         this.displayVersion(); // Visual version update
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+
+        // LIVE PREVIEW:
+        this.elements.transFileInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) this.loadForPreview(e.target.files[0]);
+        });
         
         this.theme.init();
         this.loadDefaultTemplates(); // Auto-load from templates.json
