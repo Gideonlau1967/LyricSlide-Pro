@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: FORCED FULL-WIDTH (X:0) WITH ALIGNMENT LOCK ---
+// --- FINAL REFINEMENT: FORCED ABSOLUTE X:0 CENTER ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -683,20 +683,20 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. EXTRACT TEMPLATE SETTINGS
-                // We still inherit Y (Vertical) so you can move the box up/down in PPT
+                // 1. FORCED LAYOUT (The Absolute Centering Fix)
+                // We define these as constants immediately to override any template drift
+                const posX = "0"; 
+                const posWidth = "12192000"; // Full 16:9 Widescreen width
+                
+                // Inherit ONLY the Y (Vertical) coordinate from your template
                 const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
                 const posY = yMatch ? yMatch[1] : "1143000";
 
-                // FORCE X to 0 and Width to Full Widescreen (16:9)
-                const posX = "0";
-                const posWidth = "12192000"; 
-
-                const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
-                const templateFont = latinMatch ? latinMatch[1] : "Arial";
+                // Inherit font size from template
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
+                // --- Handle Title/Copyright (Standard Replace) ---
                 if (placeholder !== '[Lyrics and Chords]') {
                     const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -706,7 +706,7 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. PROCESS SONG LINES
+                // 2. PROCESS SONG CONTENT
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
 
@@ -722,20 +722,18 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    let typeface = templateFont;
-                    let fontSize = templateSize;
+                    // FOR CENTER-POINT PRECISION: Force Courier New for both
+                    // If one is Arial and one is Courier, the centers will never match.
+                    let typeface = "Courier New"; 
+                    let fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.85) : templateSize;
                     let processedText = line;
 
-                    // PRECISION LOCK: Courier New + Length Sync
+                    // ALIGNMENT LOCK: Make lines the same character length
                     if (isChordLine && lines[i+1] && !lines[i+1].trim().startsWith('[')) {
                         const lyricLine = lines[i+1];
                         const maxLen = Math.max(line.length, lyricLine.length);
-                        // Pad both lines so they have the same center point
                         processedText = line.padEnd(maxLen, ' ');
                         lines[i+1] = lyricLine.padEnd(maxLen, ' '); 
-                        
-                        typeface = "Courier New"; 
-                        fontSize = Math.round(parseInt(templateSize) * 0.85);
                     }
 
                     const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
@@ -756,12 +754,15 @@ const App = {
                                         </a:r>
                                     </a:p>
                                 </a:txBody>
-                                <a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB></a:tcPr>
+                                <a:tcPr>
+                                    <a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR>
+                                    <a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB>
+                                </a:tcPr>
                             </a:tc>
                         </a:tr>`;
                 }
 
-                // 3. GENERATE TABLE (FORCED X:0, WIDTH:12192000)
+                // 3. RETURN FULL-WIDTH TABLE (Forced X:0)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
