@@ -406,29 +406,43 @@ const App = {
         }
     },
 
-    // --- REWORKED TABLE LOGIC ---
+    // --- ROBUST TABLE EDITING ENGINE ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
-        const phRegexStr = this.getPlaceholderRegexStr(placeholder);
-        const phRegex = new RegExp(phRegexStr, 'gi');
+        // 1. Create a "Fuzzy Regex" to find [LYRICS AND CHORDS] even if split by XML tags
+        const createFuzzyRegex = (ph) => {
+            const inner = ph.replace(/[\[\]]/g, '').trim();
+            // This allows for any amount of <tags> between every single letter
+            const fuzzy = inner.split('').map(char => 
+                char === ' ' ? '\\s+' : `${this.escRegex(char)}(?:<[^>]+>)*`
+            ).join('(?:<[^>]+>)*');
+            return new RegExp('\\[' + '(?:<[^>]+>)*' + fuzzy + '(?:<[^>]+>)*' + '\\]', 'gi');
+        };
+
+        const phRegex = createFuzzyRegex(placeholder);
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
-        // Search in both Shapes and GraphicFrames (Tables)
+        // Search for both Shapes (<p:sp>) and Table Frames (<p:graphicFrame>)
         return xml.replace(/<(p:sp|p:graphicFrame)>([\s\S]*?)<\/\1>/g, (fullTag, tagName, innerContent) => {
+            phRegex.lastIndex = 0; // Reset search pointer
+
             if (phRegex.test(innerContent)) {
-                
+                // 2. EXTRACT DIMENSIONS (Width and Position) from your template table
                 const xMatch = innerContent.match(/<a:off x="(\d+)"/);
                 const yMatch = innerContent.match(/<a:off [^>]*y="(\d+)"/);
                 const cxMatch = innerContent.match(/<a:ext cx="(\d+)"/);
+                
                 const posX = xMatch ? xMatch[1] : "0";
                 const posY = yMatch ? yMatch[1] : "1000000";
                 const posWidth = cxMatch ? cxMatch[1] : "9144000"; 
 
+                // 3. EXTRACT FONT STYLE (Arial, Calibri, etc.)
                 const latinMatch = innerContent.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = innerContent.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                if (placeholder !== '[Lyrics and Chords]') {
+                // If this is NOT the lyrics box (e.g., Title/Copyright), do simple text swap
+                if (!/Lyrics/i.test(placeholder)) {
                     const rPrMatch = innerContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
                     const escapedText = (replacement || '').split(/\r?\n/)
@@ -437,6 +451,7 @@ const App = {
                     return fullTag.replace(phRegex, escapedText);
                 }
 
+                // 4. GENERATE THE NEW ROWS (Chords = Left, Lyrics = Center)
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
 
@@ -446,28 +461,40 @@ const App = {
                         tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000);
                         return;
                     }
+
                     const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
-                    const chords = line.match(chordRegex) || [];
-                    const isChordLine = chords.length > 0 && !isTag;
+                    const hasChords = line.match(chordRegex);
 
                     if (isTag) {
-                        tableRowsXml += this.createTableCellXml(trimmed, templateFont, templateSize, "ctr", 400000);
-                    } else if (isChordLine) {
-                        const chordLineEscaped = this.escXml(line).replace(/ /g, '&#160;');
-                        tableRowsXml += this.createTableCellXml(chordLineEscaped, "Courier New", templateSize, "l", 400000);
+                        // SECTION TAGS -> Centered
+                        tableRowsXml += this.createTableCellXml(trimmed, templateFont, Math.round(templateSize * 0.8), "ctr", 400000);
+                    } else if (hasChords) {
+                        // CHORD ROWS -> Left Aligned + Monospace (Courier New)
+                        const chordLine = this.escXml(line).replace(/ /g, '&#160;');
+                        tableRowsXml += this.createTableCellXml(chordLine, "Courier New", templateSize, "l", 400000);
                     } else {
+                        // LYRIC ROWS -> Centered + Template Font
                         tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
                     }
                 });
 
+                // 5. REBUILD THE TABLE (Invisible borders, inheriting your width)
                 return `
                 <p:graphicFrame>
-                    <p:nvGraphicFramePr><p:cNvPr id="1025" name="LyricsTable"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
-                    <p:xfm><a:off x="${posX}" y="${posY}"/><a:ext cx="${posWidth}" cy="5000000"/></p:xfm>
+                    <p:nvGraphicFramePr>
+                        <p:cNvPr id="1025" name="LyricsTable"/>
+                        <p:cNvGraphicFramePr/><p:nvPr/>
+                    </p:nvGraphicFramePr>
+                    <p:xfm>
+                        <a:off x="${posX}" y="${posY}"/> 
+                        <a:ext cx="${posWidth}" cy="5000000"/>
+                    </p:xfm>
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
-                                <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
+                                <a:tblPr firstRow="0" bandRow="0">
+                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
+                                </a:tblPr>
                                 <a:tblGrid><a:gridCol w="${posWidth}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
@@ -479,6 +506,7 @@ const App = {
         });
     },
 
+    // Helper to build the individual table cells
     createTableCellXml(text, font, size, align, height) {
         return `
         <a:tr h="${height}">
@@ -488,7 +516,10 @@ const App = {
                     <a:p>
                         <a:pPr algn="${align}"><a:buNone/></a:pPr>
                         <a:r>
-                            <a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>
+                            <a:rPr sz="${size}" lang="en-US">
+                                <a:latin typeface="${font}"/>
+                                <a:cs typeface="${font}"/>
+                            </a:rPr>
                             <a:t xml:space="preserve">${text}</a:t>
                         </a:r>
                     </a:p>
