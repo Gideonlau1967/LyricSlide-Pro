@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-   // --- TABLE METHOD: CENTRALIZED TAGS, LYRICS, AND POSITIONED CHORDS ---
+// --- TABLE METHOD: LEFT-ALIGN CHORDS + CENTERED LYRIC CONTAINER ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -689,7 +689,6 @@ const App = {
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                // Handle Title and Copyright Info (Simple Replacement)
                 if (placeholder !== '[Lyrics and Chords]') {
                     const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -699,9 +698,17 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. PROCESS LINES
+                // 2. CALCULATE TABLE WIDTH BASED ON LONGEST LINE
                 const lines = (replacement || '').split(/\r?\n/);
-                const tableWidth = 9144000; // Full 16:9 Slide Width
+                let maxChars = 0;
+                lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
+
+                // Constant: ~120000 EMUs per character for a standard 24pt font
+                // This ensures the table is only as wide as the lyrics
+                const emuPerChar = Math.round((parseInt(templateSize) / 2400) * 125000);
+                const tableWidth = Math.min(9144000, maxChars * emuPerChar);
+                const offsetX = Math.max(0, (9144000 - tableWidth) / 2);
+
                 let tableRowsXml = '';
 
                 for (let i = 0; i < lines.length; i++) {
@@ -713,38 +720,24 @@ const App = {
                         continue;
                     }
 
-                    // Identify Line Type
                     const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // Style Logic
+                    // 3. APPLY ALIGNMENT LOGIC
+                    // Chords: Left Align (as requested)
+                    // Lyrics/Tags: Center Align
                     let typeface = templateFont;
                     let fontSize = templateSize;
-                    let isBoldAttr = ''; // Left empty as requested
-                    let processedText = line;
+                    let alignment = 'ctr'; 
 
-                    if (isTag) {
-                        // Section Headers: [Chorus], [Verse] 
-                        // Now uses template font, normal weight, and centered.
-                        fontSize = templateSize; 
-                    } else if (isChordLine) {
-                        // Chord Lines: Use Courier New for character-width precision
+                    if (isChordLine) {
                         typeface = "Courier New";
                         fontSize = Math.round(parseInt(templateSize) * 0.8);
-                        
-                        // PRECISION ALIGNMENT: 
-                        // Pad chord line with trailing spaces to match length of lyric line below.
-                        // This forces both lines to have the same "center," keeping the chord locked to the word.
-                        if (lines[i+1] && !lines[i+1].trim().startsWith('[')) {
-                            const lyricBelow = lines[i+1];
-                            const diff = lyricBelow.length - line.length;
-                            if (diff > 0) processedText = line + " ".repeat(diff);
-                        }
+                        alignment = 'l'; // CHORDS ARE LEFT ALIGNED
                     }
 
-                    // Replace standard spaces with non-breaking spaces for XML rendering stability
-                    const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
+                    const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
                         <a:tr h="450000">
@@ -752,9 +745,9 @@ const App = {
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="ctr"><a:buNone/></a:pPr>
+                                        <a:pPr algn="${alignment}"><a:buNone/></a:pPr>
                                         <a:r>
-                                            <a:rPr sz="${fontSize}"${isBoldAttr} lang="en-US">
+                                            <a:rPr sz="${fontSize}" lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
                                                 <a:cs typeface="${typeface}"/>
                                             </a:rPr>
@@ -767,7 +760,7 @@ const App = {
                         </a:tr>`;
                 }
 
-                // 3. GENERATE THE INVISIBLE TABLE
+                // 4. GENERATE TABLE (Centered on Slide, but text inside is mixed)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -775,7 +768,7 @@ const App = {
                         <p:cNvGraphicFramePr/><p:nvPr/>
                     </p:nvGraphicFramePr>
                     <p:xfm>
-                        <a:off x="0" y="1000000"/> 
+                        <a:off x="${Math.round(offsetX)}" y="1000000"/> 
                         <a:ext cx="${tableWidth}" cy="5000000"/>
                     </p:xfm>
                     <a:graphic>
