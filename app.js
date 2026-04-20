@@ -674,128 +674,124 @@ const App = {
         return outList[newIdx];
     },
 
-/* --- REWORKED TABLE METHOD --- */
+// --- INVESTIGATED FIX: INHERITED COORDINATES + CELL-LEVEL BORDER RESET ---
+    lockInStyleAndReplace(xml, placeholder, replacement) {
+        const phRegexStr = this.getPlaceholderRegexStr(placeholder);
+        const phRegex = new RegExp(phRegexStr, 'gi');
+        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
-lockInStyleAndReplace(xml, placeholder, replacement) {
-    const phRegexStr = this.getPlaceholderRegexStr(placeholder);
-    const phRegex = new RegExp(phRegexStr, 'gi');
-    const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
+        return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
+            if (phRegex.test(shapeXml)) {
+                
+                // 1. DYNAMIC INHERITANCE (Matches your template's box exactly)
+                const xMatch = shapeXml.match(/<a:off x="(\d+)"/);
+                const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
+                const cxMatch = shapeXml.match(/<a:ext cx="(\d+)"/);
+                
+                // If regex fails, fallback to standard widescreen defaults
+                const posX = xMatch ? xMatch[1] : "0";
+                const posY = yMatch ? yMatch[1] : "1000000";
+                const posWidth = cxMatch ? cxMatch[1] : "9144000"; 
 
-    return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
-        if (phRegex.test(shapeXml)) {
-            
-            // 1. EXTRACT DIMENSIONS & STYLE FROM TEMPLATE
-            const xMatch = shapeXml.match(/<a:off x="(\d+)"/);
-            const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
-            const cxMatch = shapeXml.match(/<a:ext cx="(\d+)"/);
-            
-            const posX = xMatch ? xMatch[1] : "0";
-            const posY = yMatch ? yMatch[1] : "1000000";
-            const posWidth = cxMatch ? cxMatch[1] : "9144000"; 
+                const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
+                const templateFont = latinMatch ? latinMatch[1] : "Arial";
+                const sizeMatch = shapeXml.match(/sz="(\d+)"/);
+                const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-            const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
-            const templateFont = latinMatch ? latinMatch[1] : "Arial";
-            const sizeMatch = shapeXml.match(/sz="(\d+)"/);
-            const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
+                if (placeholder !== '[Lyrics and Chords]') {
+                    const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
+                    let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
+                    const escapedText = (replacement || '').split(/\r?\n/)
+                        .map(l => this.escXml(l))
+                        .join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    return shapeXml.replace(phRegex, escapedText);
+                }
 
-            // Standard text replacement for Title/Copyright
-            if (placeholder !== '[Lyrics and Chords]') {
-                const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
-                let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
-                const escapedText = (replacement || '').split(/\r?\n/)
-                    .map(l => this.escXml(l))
-                    .join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                return shapeXml.replace(phRegex, escapedText);
+                // 2. PROCESS SONG CONTENT
+                const lines = (replacement || '').split(/\r?\n/);
+                let tableRowsXml = '';
+
+                for (let i = 0; i < lines.length; i++) {
+                    let line = lines[i];
+                    let trimmed = line.trim();
+                    if (trimmed === '') {
+                        tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB></a:tcPr></a:tc></a:tr>`;
+                        continue;
+                    }
+
+                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
+                    const chords = line.match(chordRegex) || [];
+                    const isChordLine = chords.length > 0 && !isTag;
+
+                    // PRECISION REQUIREMENT:
+                    // To keep Chords centralized OVER lyrics, both MUST use the same font.
+                    // We force Courier New for both so character widths match 1:1.
+                    let typeface = "Courier New"; 
+                    let fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.85) : templateSize;
+                    let processedText = line;
+
+                    // ALIGNMENT LOCK: Pad shorter lines with spaces to ensure shared center
+                    if (isChordLine && lines[i+1] && !lines[i+1].trim().startsWith('[')) {
+                        const lyricLine = lines[i+1];
+                        const maxLen = Math.max(line.length, lyricLine.length);
+                        processedText = line.padEnd(maxLen, ' ');
+                        lines[i+1] = lyricLine.padEnd(maxLen, ' '); 
+                    }
+
+                    const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
+
+                    tableRowsXml += `
+                        <a:tr h="450000">
+                            <a:tc>
+                                <a:txBody>
+                                    <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
+                                    <a:p>
+                                        <a:pPr algn="ctr"><a:buNone/></a:pPr>
+                                        <a:r>
+                                            <a:rPr sz="${fontSize}" lang="en-US">
+                                                <a:latin typeface="${typeface}"/>
+                                                <a:cs typeface="${typeface}"/>
+                                            </a:rPr>
+                                            <a:t xml:space="preserve">${escapedLine}</a:t>
+                                        </a:r>
+                                    </a:p>
+                                </a:txBody>
+                                <a:tcPr>
+                                    <a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR>
+                                    <a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB>
+                                    <a:solidFill><a:noFill/></a:solidFill>
+                                </a:tcPr>
+                            </a:tc>
+                        </a:tr>`;
+                }
+
+                // 3. GENERATE TABLE (Exact coordinates from your Template Shape)
+                return `
+                <p:graphicFrame>
+                    <p:nvGraphicFramePr>
+                        <p:cNvPr id="1025" name="LyricsTable"/>
+                        <p:cNvGraphicFramePr/><p:nvPr/>
+                    </p:nvGraphicFramePr>
+                    <p:xfm>
+                        <a:off x="${posX}" y="${posY}"/> 
+                        <a:ext cx="${posWidth}" cy="5000000"/>
+                    </p:xfm>
+                    <a:graphic>
+                        <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+                            <a:tbl>
+                                <a:tblPr firstRow="0" bandRow="0">
+                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
+                                </a:tblPr>
+                                <a:tblGrid><a:gridCol w="${posWidth}"/></a:tblGrid>
+                                ${tableRowsXml}
+                            </a:tbl>
+                        </a:graphicData>
+                    </a:graphic>
+                </p:graphicFrame>`;
             }
-
-            // 2. GENERATE TABLE ROWS BASED ON CONTENT TYPE
-            const lines = (replacement || '').split(/\r?\n/);
-            let tableRowsXml = '';
-
-            lines.forEach((line) => {
-                let trimmed = line.trim();
-                if (trimmed === '') {
-                    // Spacer Row
-                    tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000);
-                    return;
-                }
-
-                // Identify Line Type
-                const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
-                const chords = line.match(chordRegex) || [];
-                const isChordLine = chords.length > 0 && !isTag;
-
-                if (isTag) {
-                    // ROW TYPE 1: [Section Tag] - Centralized, slightly smaller
-                    const tagSize = Math.round(parseInt(templateSize) * 0.8);
-                    tableRowsXml += this.createTableCellXml(trimmed, templateFont, tagSize, "ctr", 350000, true);
-                } 
-                else if (isChordLine) {
-                    // ROW TYPE 2: Chords - Courier New, Left Aligned
-                    // We use non-breaking spaces for chord positioning
-                    const chordLineEscaped = this.escXml(line).replace(/ /g, '&#160;');
-                    tableRowsXml += this.createTableCellXml(chordLineEscaped, "Courier New", templateSize, "l", 400000);
-                } 
-                else {
-                    // ROW TYPE 3: Lyrics - Template Font, Centralized
-                    tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
-                }
-            });
-
-            // 3. RETURN THE GRAPHIC FRAME (TABLE)
-            return `
-            <p:graphicFrame>
-                <p:nvGraphicFramePr>
-                    <p:cNvPr id="1025" name="LyricsTable"/>
-                    <p:cNvGraphicFramePr/><p:nvPr/>
-                </p:nvGraphicFramePr>
-                <p:xfm>
-                    <a:off x="${posX}" y="${posY}"/> 
-                    <a:ext cx="${posWidth}" cy="5000000"/>
-                </p:xfm>
-                <a:graphic>
-                    <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
-                        <a:tbl>
-                            <a:tblPr firstRow="0" bandRow="0">
-                                <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
-                            </a:tblPr>
-                            <a:tblGrid><a:gridCol w="${posWidth}"/></a:tblGrid>
-                            ${tableRowsXml}
-                        </a:tbl>
-                    </a:graphicData>
-                </a:graphic>
-            </p:graphicFrame>`;
-        }
-        return shapeXml;
-    });
-},
-
-// Helper to build a clean PPTX Table Row
-createTableCellXml(text, font, size, align, height, isItalic = false) {
-    return `
-    <a:tr h="${height}">
-        <a:tc>
-            <a:txBody>
-                <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
-                <a:p>
-                    <a:pPr algn="${align}"><a:buNone/></a:pPr>
-                    <a:r>
-                        <a:rPr sz="${size}" lang="en-US" i="${isItalic ? '1' : '0'}">
-                            <a:latin typeface="${font}"/>
-                            <a:cs typeface="${font}"/>
-                        </a:rPr>
-                        <a:t xml:space="preserve">${text}</a:t>
-                    </a:r>
-                </a:p>
-            </a:txBody>
-            <a:tcPr>
-                <a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR>
-                <a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB>
-                <a:solidFill><a:noFill/></a:solidFill>
-            </a:tcPr>
-        </a:tc>
-    </a:tr>`;
-}
+            return shapeXml;
+        });
+    },
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
         const sldIdLst = '<p:sldIdLst>' + generated.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>';
         newZip.file('ppt/presentation.xml', presXml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, sldIdLst));
