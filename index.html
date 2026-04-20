@@ -119,7 +119,7 @@
             display: flex;
             flex-direction: column;
             position: relative;
-            color: var(--preview-lyrics-color);
+            color: var(--preview--color);
         }
 
         .chord {
@@ -318,8 +318,8 @@
                     <input type="color" id="picker-chord" class="color-picker-input" value="#334155">
                 </div>
                 <div class="color-row">
-                    <span class="text-sm font-semibold">Lyrics Color</span>
-                    <input type="color" id="picker-lyrics" class="color-picker-input" value="#1e293b">
+                    <span class="text-sm font-semibold"> Color</span>
+                    <input type="color" id="picker-" class="color-picker-input" value="#1e293b">
                 </div>
             </section>
 
@@ -336,7 +336,7 @@
                 <img src="TOP Logo.png" class="relative w-24 h-24 rounded-full bg-white border border-slate-200 object-contain logo-shadow" alt="TOP Logo">
             </div>
             <div>
-                <h1 class="text-3xl font-black tracking-tight" style="color: var(--text-main)">LyricSlide Pro</h1>
+                <h1 class="text-3xl font-black tracking-tight" style="color: var(--text-main)">lide Pro</h1>
                 <p class="text-sm font-medium" style="color: var(--text-muted)">Professional Song Deck Utility</p>
                 <p id="appVersion" class="text-[10px] uppercase tracking-widest text-slate-400 font-mono mt-1"></p>
             </div>
@@ -385,7 +385,7 @@
             </div>
             <div class="lg:col-span-8 glass p-8 space-y-6">
                 <input type="text" id="songTitle" class="w-full p-4" placeholder="Song Title">
-                <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & Lyrics..."></textarea>
+                <textarea id="Input" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & ..."></textarea>
                 <input type="text" id="copyrightInfo" class="w-full p-4" placeholder="Copyright Info">
                 <button id="generateBtn" class="w-full py-4 btn-primary rounded-xl font-bold"><i class="fas fa-magic mr-2"></i>Generate PowerPoint</button>
             </div>
@@ -486,6 +486,14 @@
                                 <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Size (pt)</label>
                                 <input type="number" id="fontSizeLyrics" class="w-full px-3 py-2 text-sm" placeholder="Keep original" min="6" max="120">
                             </div>
+                        </div>
+                        <div class="mt-4">
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Slide Alignment</label>
+                            <select id="alignmentSelect" class="w-full p-2 bg-white border border-slate-200 rounded-md text-sm">
+                            <option value="smart">Smart (Lyrics: Center, Chords: Left)</option>
+                            <option value="l">Force All Left</option>
+                            <option value="ctr">Force All Centered</option>
+                            </select>
                         </div>
 
                         <!-- Copyright Info -->
