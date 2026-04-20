@@ -1,26 +1,20 @@
-/* LyricSlide Pro - Core Logic v19.9 (UI Switcher + Stable Engine) */
+/* LyricSlide Pro - Core Logic v21.0 (Master Build) */
 
 const App = {
-    version: "v19.9 (UI Switcher)",
+    version: "v21.0 (Master Build)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
         copyrightInfo: document.getElementById('copyrightInfo'),
         generateBtn: document.getElementById('generateBtn'),
-        
         transFileInput: document.getElementById('transFileInput'),
         transposeBtn: document.getElementById('transposeBtn'),
         semitoneDisplay: document.getElementById('semitoneDisplay'),
-        
         loadingOverlay: document.getElementById('loadingOverlay'),
         loadingText: document.getElementById('loadingText'),
-
-        // Navigation Buttons
         navGen: document.getElementById('modeGen'),
         navTrans: document.getElementById('modeTrans'),
-        
-        // View Containers
         viewGen: document.getElementById('viewGen'),
         viewTrans: document.getElementById('viewTrans')
     },
@@ -30,42 +24,37 @@ const App = {
         flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    originalSlides: [],   
     selectedTemplateFile: null, 
 
     init() {
+        // 1. UI Setup
         const verEl = document.getElementById('appVersion');
         if (verEl) verEl.textContent = this.version;
 
-        // --- UI NAVIGATION LOGIC ---
+        // 2. Attach Navigation
         if (this.elements.navGen) this.elements.navGen.onclick = () => this.setMode('gen');
         if (this.elements.navTrans) this.elements.navTrans.onclick = () => this.setMode('trans');
 
-        // --- ACTION BUTTONS ---
+        // 3. Attach Actions
         if (this.elements.generateBtn) this.elements.generateBtn.onclick = () => this.generate();
         if (this.elements.transposeBtn) this.elements.transposeBtn.onclick = () => this.transpose();
         
+        // 4. Initialize Sub-modules
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
-        console.log("App Initialized. UI Navigation Active.");
+        console.log("App v21.0 Initialized.");
     },
 
-    // --- MODE SWITCHER (Links to the Transpose Screen) ---
     setMode(mode) {
         const isGen = mode === 'gen';
-        
-        // Toggle Active Classes on Sidebar Buttons
         if (this.elements.navGen) this.elements.navGen.classList.toggle('active', isGen);
         if (this.elements.navTrans) this.elements.navTrans.classList.toggle('active', !isGen);
-        
-        // Toggle Visibility of the main views
         if (this.elements.viewGen) this.elements.viewGen.classList.toggle('hidden', !isGen);
         if (this.elements.viewTrans) this.elements.viewTrans.classList.toggle('hidden', isGen);
-        
-        console.log("Switched mode to: " + mode);
     },
 
+    // --- THEME MANAGEMENT ---
     theme: {
         defaults: { '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc', '--text-main': '#1e293b', '--card-accent': '#e2e8f0', '--preview-card-bg': '#ffffff', '--preview-chord-color': '#334155', '--preview-lyrics-color': '#1e293b' },
         init() {
@@ -73,76 +62,32 @@ const App = {
             Object.keys(this.defaults).forEach(key => {
                 const val = saved[key] || this.defaults[key];
                 document.documentElement.style.setProperty(key, val);
+                const picker = document.getElementById('picker-' + key.replace('--', '').replace('-color', ''));
+                if (picker) picker.value = val;
             });
+            document.querySelectorAll('.color-picker-input').forEach(p => {
+                p.oninput = (e) => {
+                    const map = { 'picker-primary': '--primary-color', 'picker-bg-start': '--bg-start', 'picker-bg-end': '--bg-end', 'picker-text': '--text-main', 'picker-card-accent': '--card-accent', 'picker-preview-bg': '--preview-card-bg', 'picker-chord': '--preview-chord-color', 'picker-lyrics': '--preview-lyrics-color' };
+                    document.documentElement.style.setProperty(map[e.target.id], e.target.value);
+                    this.save();
+                };
+            });
+        },
+        save() {
+            const current = {};
+            Object.keys(this.defaults).forEach(k => { current[k] = getComputedStyle(document.documentElement).getPropertyValue(k).trim(); });
+            localStorage.setItem('lyric_theme', JSON.stringify(current));
         }
-    },
-
-    // --- TRANSPOSITION ENGINE ---
-    async transpose() {
-        const file = this.elements.transFileInput.files[0];
-        const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
-
-        if (!file) return alert('Please select a PPTX file first.');
-        if (semitones === 0) return alert('Change semitones (+/-) before transposing.');
-
-        try {
-            this.showLoading('Transposing Chords...');
-            const zip = await JSZip.loadAsync(file);
-            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
-            
-            for (const path of slideFiles) {
-                let content = await zip.file(path).async('string');
-                content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => 
-                    `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
-                zip.file(path, content);
-            }
-            
-            const finalBlob = await zip.generateAsync({ type: 'blob' });
-            saveAs(finalBlob, file.name.replace('.pptx', `_transposed_${semitones}.pptx`));
-            this.hideLoading();
-        } catch (err) {
-            this.hideLoading();
-            alert("Error: " + err.message);
-        }
-    },
-
-    transposeLine(text, semitones) {
-        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
-        return text.split('\n').map(line => {
-            if (!line.match(chordRegex)) return line;
-            let result = line;
-            let offset = 0;
-            const matches = [...line.matchAll(chordRegex)];
-            for (const m of matches) {
-                const originalChord = m[0];
-                const pos = m.index + offset;
-                const newRoot = this.shiftNote(m[1], semitones);
-                const newBass = m[3] ? '/' + this.shiftNote(m[3].substring(1), semitones) : '';
-                const newChord = newRoot + (m[2] || '') + newBass;
-                result = result.substring(0, pos) + newChord + result.substring(pos + originalChord.length);
-                offset += (newChord.length - originalChord.length);
-            }
-            return result;
-        }).join('\n');
-    },
-
-    shiftNote(note, semitones) {
-        let list = note.includes('b') ? this.musical.flats : this.musical.keys;
-        let idx = list.indexOf(note);
-        if (idx === -1) idx = (list === this.musical.keys ? this.musical.flats : this.musical.keys).indexOf(note);
-        if (idx === -1) return note;
-        let newIdx = (idx + semitones + 12) % 12;
-        return (semitones >= 0 ? this.musical.keys : this.musical.flats)[newIdx];
     },
 
     // --- GENERATION ENGINE ---
     async generate() {
         const file = this.selectedTemplateFile;
         const lyrics = this.elements.lyricsInput.value;
-        if (!file || !lyrics) return alert('Select template and enter lyrics.');
+        if (!file || !lyrics) return alert('Select a template and enter lyrics.');
 
         try {
-            this.showLoading('Generating...');
+            this.showLoading('Generating PPTX...');
             const zip = await JSZip.loadAsync(file);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
@@ -152,22 +97,25 @@ const App = {
             const templateRelsXml = await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string');
             
             const sections = ("\n" + lyrics).split(/\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/).filter(s => s.trim() !== '');
-            const copyrightText = this.elements.copyrightInfo.value || "";
+            const generated = [];
 
             for (let i = 0; i < sections.length; i++) {
                 let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', this.elements.songTitle.value);
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyrightText);
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', this.elements.copyrightInfo.value);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sections[i].trim());
 
                 const name = `song_gen_${i + 1}.xml`;
-                zip.file(`ppt/slides/${name}`, slideXml);
+                const path = `ppt/slides/${name}`;
+                zip.file(path, slideXml);
                 zip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml);
+                generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name, path });
             }
 
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
-            saveAs(await zip.generateAsync({ type: 'blob' }), `${(this.elements.songTitle.value || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
+            const finalBlob = await zip.generateAsync({ type: 'blob' });
+            saveAs(finalBlob, `${(this.elements.songTitle.value || 'Song')}.pptx`);
             this.hideLoading();
-        } catch (e) { this.hideLoading(); }
+        } catch (e) { console.error(e); this.hideLoading(); alert("Error generating PPTX."); }
     },
 
     lockInStyleAndReplace(xml, placeholder, replacement) {
@@ -216,17 +164,60 @@ const App = {
                 if (header.includes('</a:tblPr>')) {
                     header = header.replace('</a:tblPr>', '<a:wholeTbl><a:tcPr><a:noFill/></a:tcPr></a:wholeTbl></a:tblPr>');
                 }
-                const newInner = `${header}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}`;
-                return `<${tagName}>${newInner}</${tagName}>`;
+                return `<${tagName}>${header}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}</${tagName}>`;
             }
             return fullFrame;
         });
     },
 
     createTableCellXml(text, font, size, align, height) {
-        return `<a:tr h="${height}"><a:tc><a:txBody><a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/><a:p><a:pPr algn="${align}"/><a:r><a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr><a:t xml:space="preserve">${text}</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB><a:noFill/></a:tcPr></a:tc></a:tr>`;
+        return `<a:tr h="${height}"><a:tc><a:txBody><a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/><a:p><a:pPr algn="${align}"/><a:r><a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:r><a:t xml:space="preserve">${text}</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB><a:noFill/></a:tcPr></a:tc></a:tr>`;
     },
 
+    // --- TRANSPOSITION ENGINE ---
+    async transpose() {
+        const file = this.elements.transFileInput.files[0];
+        const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
+        if (!file) return alert('Select a PPTX file.');
+        try {
+            this.showLoading('Transposing...');
+            const zip = await JSZip.loadAsync(file);
+            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
+            for (const path of slideFiles) {
+                let content = await zip.file(path).async('string');
+                content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
+                zip.file(path, content);
+            }
+            saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
+            this.hideLoading();
+        } catch (e) { this.hideLoading(); alert("Transposition failed."); }
+    },
+
+    transposeLine(text, semitones) {
+        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
+        return text.split('\n').map(line => {
+            if (!line.match(chordRegex)) return line;
+            let result = line, offset = 0;
+            const matches = [...line.matchAll(chordRegex)];
+            for (const m of matches) {
+                const nc = this.shiftNote(m[rootIndex=1], semitones) + (m[2] || '') + (m[3] ? '/' + this.shiftNote(m[3].substring(1), semitones) : '');
+                const fullMatch = m[0];
+                result = result.substring(0, m.index + offset) + nc + result.substring(m.index + offset + fullMatch.length);
+                offset += (nc.length - fullMatch.length);
+            }
+            return result;
+        }).join('\n');
+    },
+
+    shiftNote(note, semitones) {
+        let list = note.includes('b') ? this.musical.flats : this.musical.keys;
+        let idx = list.indexOf(note);
+        if (idx === -1) idx = (list === this.musical.keys ? this.musical.flats : this.musical.keys).indexOf(note);
+        if (idx === -1) return note;
+        return (semitones >= 0 ? this.musical.keys : this.musical.flats)[(idx + semitones + 12) % 12];
+    },
+
+    // --- TEMPLATE LIB ---
     async loadDefaultTemplates() {
         const gallery = document.getElementById('templateGallery');
         try {
@@ -246,15 +237,14 @@ const App = {
                     this.selectedTemplateFile = new File([blob], name, { type: blob.type });
                     document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
                     card.classList.add('selected');
-                    document.getElementById('selectedTemplateInfo').classList.remove('hidden');
-                    document.getElementById('selectedTemplateName').textContent = name;
                 };
                 grid.appendChild(card);
             });
             gallery.appendChild(grid);
-        } catch (e) { gallery.innerHTML = 'Library failed.'; }
+        } catch (e) { gallery.innerHTML = 'Library error.'; }
     },
 
+    // --- HELPERS ---
     showLoading(t) { this.elements.loadingText.textContent = t; this.elements.loadingOverlay.style.display = 'flex'; },
     hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
     unescXml(s) { return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&apos;/g,"'"); },
@@ -270,18 +260,18 @@ const App = {
         for (let j = rs.length - 1; j >= 0; j--) if (rs[j].getAttribute('Type').endsWith('slide')) rs[j].parentNode.removeChild(rs[j]);
         gen.forEach(s => { let el = doc.createElement('Relationship'); el.setAttribute('Id', s.rid); el.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide'); el.setAttribute('Target', `slides/${s.name}`); doc.documentElement.appendChild(el); });
         zip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(doc));
+        
+        // Finalize Content Types (MANDATORY FOR PPTX VALIDITY)
         const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="pptx" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>';
         let entries = gen.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
         zip.file('[Content_Types].xml', (head + entries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
     }
 };
 
-// --- GLOBAL CONNECTORS ---
 function changeSemitones(delta) {
-    const display = document.getElementById('semitoneDisplay');
-    let current = parseInt(display.textContent) || 0;
-    let next = Math.max(-11, Math.min(11, current + delta));
-    display.textContent = (next > 0 ? '+' : '') + next;
+    const d = document.getElementById('semitoneDisplay');
+    let n = Math.max(-11, Math.min(11, (parseInt(d.textContent) || 0) + delta));
+    d.textContent = (n > 0 ? '+' : '') + n;
 }
 function transpose() { App.transpose(); }
 
