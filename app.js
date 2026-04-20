@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- FINAL REFINEMENT: FORCED ABSOLUTE X:0 CENTER ---
+// --- INVESTIGATED FIX: INHERITED COORDINATES + CELL-LEVEL BORDER RESET ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -683,20 +683,21 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. FORCED LAYOUT (The Absolute Centering Fix)
-                // We define these as constants immediately to override any template drift
-                const posX = "0"; 
-                const posWidth = "12192000"; // Full 16:9 Widescreen width
-                
-                // Inherit ONLY the Y (Vertical) coordinate from your template
+                // 1. DYNAMIC INHERITANCE (Matches your template's box exactly)
+                const xMatch = shapeXml.match(/<a:off x="(\d+)"/);
                 const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
-                const posY = yMatch ? yMatch[1] : "1143000";
+                const cxMatch = shapeXml.match(/<a:ext cx="(\d+)"/);
+                
+                // If regex fails, fallback to standard widescreen defaults
+                const posX = xMatch ? xMatch[1] : "0";
+                const posY = yMatch ? yMatch[1] : "1000000";
+                const posWidth = cxMatch ? cxMatch[1] : "9144000"; 
 
-                // Inherit font size from template
+                const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
+                const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                // --- Handle Title/Copyright (Standard Replace) ---
                 if (placeholder !== '[Lyrics and Chords]') {
                     const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -714,7 +715,7 @@ const App = {
                     let line = lines[i];
                     let trimmed = line.trim();
                     if (trimmed === '') {
-                        tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`;
+                        tableRowsXml += `<a:tr h="150000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t> </a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB></a:tcPr></a:tc></a:tr>`;
                         continue;
                     }
 
@@ -722,13 +723,14 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // FOR CENTER-POINT PRECISION: Force Courier New for both
-                    // If one is Arial and one is Courier, the centers will never match.
+                    // PRECISION REQUIREMENT:
+                    // To keep Chords centralized OVER lyrics, both MUST use the same font.
+                    // We force Courier New for both so character widths match 1:1.
                     let typeface = "Courier New"; 
                     let fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.85) : templateSize;
                     let processedText = line;
 
-                    // ALIGNMENT LOCK: Make lines the same character length
+                    // ALIGNMENT LOCK: Pad shorter lines with spaces to ensure shared center
                     if (isChordLine && lines[i+1] && !lines[i+1].trim().startsWith('[')) {
                         const lyricLine = lines[i+1];
                         const maxLen = Math.max(line.length, lyricLine.length);
@@ -757,12 +759,13 @@ const App = {
                                 <a:tcPr>
                                     <a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR>
                                     <a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB>
+                                    <a:solidFill><a:noFill/></a:solidFill>
                                 </a:tcPr>
                             </a:tc>
                         </a:tr>`;
                 }
 
-                // 3. RETURN FULL-WIDTH TABLE (Forced X:0)
+                // 3. GENERATE TABLE (Exact coordinates from your Template Shape)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -776,7 +779,9 @@ const App = {
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
-                                <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
+                                <a:tblPr firstRow="0" bandRow="0">
+                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
+                                </a:tblPr>
                                 <a:tblGrid><a:gridCol w="${posWidth}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
