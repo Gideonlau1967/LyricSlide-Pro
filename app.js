@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- FINAL TABLE METHOD: INHERITS POSITION & LOCKS ALIGNMENT ---
+// --- TABLE METHOD: FORCED FULL-WIDTH (X:0) WITH ALIGNMENT LOCK ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -683,15 +683,14 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. EXTRACT TEMPLATE POSITION & FONT
-                // We "steal" the X, Y, and Width from your template's text box
-                const xMatch = shapeXml.match(/<a:off x="(\d+)"/);
+                // 1. EXTRACT TEMPLATE SETTINGS
+                // We still inherit Y (Vertical) so you can move the box up/down in PPT
                 const yMatch = shapeXml.match(/<a:off [^>]*y="(\d+)"/);
-                const cxMatch = shapeXml.match(/<a:ext cx="(\d+)"/);
-                
-                const posX = xMatch ? xMatch[1] : "457200";
                 const posY = yMatch ? yMatch[1] : "1143000";
-                const posWidth = cxMatch ? cxMatch[1] : "8229600";
+
+                // FORCE X to 0 and Width to Full Widescreen (16:9)
+                const posX = "0";
+                const posWidth = "12192000"; 
 
                 const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
@@ -727,13 +726,15 @@ const App = {
                     let fontSize = templateSize;
                     let processedText = line;
 
-                    // ALIGNMENT LOCK: Ensure Chord and Lyric lines have same character count
+                    // PRECISION LOCK: Courier New + Length Sync
                     if (isChordLine && lines[i+1] && !lines[i+1].trim().startsWith('[')) {
                         const lyricLine = lines[i+1];
                         const maxLen = Math.max(line.length, lyricLine.length);
+                        // Pad both lines so they have the same center point
                         processedText = line.padEnd(maxLen, ' ');
-                        lines[i+1] = lyricLine.padEnd(maxLen, ' '); // Sync the next line's length
-                        typeface = "Courier New"; // Monospace is required for precision
+                        lines[i+1] = lyricLine.padEnd(maxLen, ' '); 
+                        
+                        typeface = "Courier New"; 
                         fontSize = Math.round(parseInt(templateSize) * 0.85);
                     }
 
@@ -760,7 +761,7 @@ const App = {
                         </a:tr>`;
                 }
 
-                // 3. GENERATE TABLE (Placed exactly where the template placeholder was)
+                // 3. GENERATE TABLE (FORCED X:0, WIDTH:12192000)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
