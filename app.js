@@ -1,8 +1,8 @@
-/* LyricSlide Pro - Core Logic v15.1 (Infra Upgrade + Versioning) */
+/* LyricSlide Pro - Core Logic v15.2 (Infra Upgrade + Versioning) */
 
 const App = {
     // --- APP METADATA ---
-    version: "v15.1 (Infrastructure Upgrade)",
+    version: "v15.2 (WITH LIVE PREVIEW)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
