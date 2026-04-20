@@ -1,8 +1,8 @@
-/* LyricSlide Pro - Core Logic v15.4 (Presenter Notes Preview) */ 
+/* LyricSlide Pro - Core Logic v15.5 (Presenter Notes Preview) */ 
 
 const App = {
     // --- APP METADATA ---
-   version: "v15.4 (Presenter Notes Preview Line Break)", 
+   version: "v15.5 (Presenter Notes Preview Line Break)", 
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -171,7 +171,7 @@ const App = {
 
     async loadForPreview(file) {
         try {
-            this.showLoading('Extracting Presenter Notes...');
+            this.showLoading('Reading Presenter Notes...');
             const zip = await JSZip.loadAsync(file);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const slideIds = this.getSlideIds(presXml);
@@ -186,7 +186,7 @@ const App = {
                 const slideFileName = slideRelPath.split('/').pop();
                 const slidePath = `ppt/${slideRelPath}`;
                 
-                // Get Song Title from Slide
+                // Get Song Title from Slide for the header
                 const slideXml = await zip.file(slidePath).async('string');
                 if (!globalSongTitle) {
                     const titleMatch = slideXml.match(/<a:t>([^<]+)<\/a:t>/);
@@ -196,7 +196,7 @@ const App = {
                 // Find Notes for this slide
                 const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
                 const relsFile = zip.file(relsPath);
-                let slideLines = []; // Store lines for this specific slide
+                let slideLines = []; 
 
                 if (relsFile) {
                     const relsXml = await relsFile.async('string');
@@ -205,34 +205,33 @@ const App = {
                     if (notesPath && zip.file(notesPath)) {
                         const notesXml = await zip.file(notesPath).async('string');
                         
-                        // PARSE BY PARAGRAPH to preserve line breaks and prevent duplication
+                        // EVERY <a:p> is a line. We must capture them all.
                         const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
                         let pMatch;
                         while ((pMatch = pRegex.exec(notesXml)) !== null) {
                             const pContent = pMatch[1];
                             const tRegex = /<a:t[^>]*>(.*?)<\/a:t>/g;
                             let tMatch;
-                            let lineText = "";
+                            let paragraphText = "";
                             
                             while ((tMatch = tRegex.exec(pContent)) !== null) {
-                                lineText += this.unescXml(tMatch[1]);
+                                paragraphText += this.unescXml(tMatch[1]);
                             }
 
-                            const trimmed = lineText.trim();
-                            // Filter out common PPT junk like slide numbers or empty lines
-                            if (trimmed && !/^\d+$/.test(trimmed)) {
-                                slideLines.push({
-                                    text: lineText,
-                                    alignment: 'left', // FORCE LEFT ALIGN
-                                    isTitle: false
-                                });
-                            }
+                            // Only skip if the line is JUST a slide number (prevents duplication)
+                            if (/^\d+$/.test(paragraphText.trim())) continue;
+
+                            // We push the line even if it's empty to maintain vertical spacing
+                            slideLines.push({
+                                text: paragraphText, 
+                                alignment: 'left'
+                            });
                         }
                     }
                 }
 
                 if (slideLines.length === 0) {
-                    slideLines.push({ text: "(No notes for this slide)", alignment: 'left', isTitle: false });
+                    slideLines.push({ text: "(No notes for this slide)", alignment: 'left' });
                 }
                 
                 this.originalSlides.push(slideLines);
@@ -258,15 +257,13 @@ const App = {
             return;
         }
 
-        const songTitle = this.songTitle || "";
-
         this.originalSlides.forEach((slideData, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
 
             const card = document.createElement('div');
             card.className = 'preview-card';
-            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left sticky left-0">Slide ${idx + 1}</div>`;
+            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>`;
 
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
@@ -274,22 +271,21 @@ const App = {
             slideData.forEach((para) => {
                 const lineDiv = document.createElement('div');
                 
-                // 1. Force Left Align and preserve chord spacing
-                lineDiv.style.textAlign = para.alignment || 'left';
-                lineDiv.style.minHeight = '1.2em';
-                lineDiv.style.whiteSpace = 'pre-wrap'; // This preserves your chord spacing/line breaks
-                lineDiv.style.fontFamily = 'monospace'; // Optional: makes chord alignment more predictable
-                
+                // FORCE LINE BREAK AND LEFT ALIGN
+                lineDiv.style.display = 'block';         // Every line is a block
+                lineDiv.style.textAlign = 'left';        // Force Left
+                lineDiv.style.minHeight = '1.1em';       // Preserve empty line height
+                lineDiv.style.whiteSpace = 'pre';        // DO NOT collapse spaces (CRITICAL for chords)
+                lineDiv.style.fontFamily = 'monospace';  // Fixed-width font for perfect alignment
+
                 const transposed = this.transposeLine(para.text, semitones);
                 lineDiv.innerHTML = this.renderChordHTML(transposed);
                 contentDiv.appendChild(lineDiv);
             });
             
-            if (contentDiv.children.length > 0) {
-                card.appendChild(contentDiv);
-                wrapper.appendChild(card);
-                container.appendChild(wrapper);
-            }
+            card.appendChild(contentDiv);
+            wrapper.appendChild(card);
+            container.appendChild(wrapper);
         });
 
         const zoomSlider = document.getElementById('zoomSlider');
