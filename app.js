@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: FIXED ANCHOR PRECISION (WIDESCREEN 16:9) ---
+// --- TABLE METHOD: FULL-WIDTH SLIDE WITH MATHEMATICAL CENTERING ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -702,15 +702,16 @@ const App = {
                 const MAX_SLIDE_WIDTH = 12192000; 
                 const lines = (replacement || '').split(/\r?\n/);
                 
-                // Find the longest line to calculate how much to "push" the block to the center
+                // Find longest line to calculate the "Starting Margin"
                 let maxChars = 0;
                 lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
 
-                // We calculate a Left Margin (indent) to simulate centering
-                // Average char width is roughly 125k EMUs for 24pt
-                const charWidth = Math.round((parseInt(templateSize) / 2400) * 125000);
+                // Constant: ~115,000 EMUs per char for standard fonts.
+                const charWidth = Math.round((parseInt(templateSize) / 2400) * 115000);
                 const estimatedSongWidth = maxChars * charWidth;
-                const centerPush = Math.max(0, (MAX_SLIDE_WIDTH - estimatedSongWidth) / 2);
+                
+                // This is the mathematical "Push" to center the block on the slide
+                const centerMargin = Math.max(0, (MAX_SLIDE_WIDTH - estimatedSongWidth) / 2);
 
                 let tableRowsXml = '';
 
@@ -728,14 +729,13 @@ const App = {
                     const isChordLine = chords.length > 0 && !isTag;
 
                     // 3. STYLE & ALIGNMENT
-                    // Every line is LEFT ALIGNED so the spaces work.
-                    // The marL (Left Margin) pushes the whole block to the center.
+                    // Every line is LEFT ALIGNED to keep the chord-to-word relationship.
+                    // The marL (Margin Left) creates the illusion of centering.
                     const typeface = isChordLine ? "Courier New" : templateFont;
                     const fontSize = isChordLine ? Math.round(parseInt(templateSize) * 0.8) : templateSize;
-                    
-                    // We apply the "Center Push" to every line so they all start at the same X-coordinate
-                    const indent = ` marL="${Math.round(centerPush)}"`;
+                    const alignment = "l"; // STRICT LEFT ALIGN
 
+                    // Convert spaces to Non-Breaking Spaces so PPT doesn't collapse them
                     const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
@@ -744,7 +744,9 @@ const App = {
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="l"${indent}><a:buNone/></a:pPr>
+                                        <a:pPr algn="${alignment}" marL="${Math.round(centerMargin)}">
+                                            <a:buNone/>
+                                        </a:pPr>
                                         <a:r>
                                             <a:rPr sz="${fontSize}" lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
@@ -754,13 +756,17 @@ const App = {
                                         </a:r>
                                     </a:p>
                                 </a:txBody>
-                                <a:tcPr/>
+                                <a:tcPr>
+                                    <a:lnL w="0"><a:noFill/></a:lnL>
+                                    <a:lnR w="0"><a:noFill/></a:lnR>
+                                    <a:lnT w="0"><a:noFill/></a:lnT>
+                                    <a:lnB w="0"><a:noFill/></a:lnB>
+                                </a:tcPr>
                             </a:tc>
                         </a:tr>`;
                 }
 
-                // 4. GENERATE FULL-WIDTH TABLE
-                // Setting x="0" and cx="MAX_SLIDE_WIDTH" prevents text from wrapping
+                // 4. GENERATE FULL-WIDTH TABLE (Invisible Borders)
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
