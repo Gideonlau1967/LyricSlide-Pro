@@ -736,11 +736,9 @@ const App = {
 
     // --- UPDATED REGISTRY SYNC (DYNAMIC INFRASTRUCTURE) ---
     async syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
-        // 1. Update Slide IDs in presentation.xml
         const sldIdLst = '<p:sldIdLst>' + generated.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>';
         newZip.file('ppt/presentation.xml', presXml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, sldIdLst));
 
-        // 2. Update Relationships in presentation.xml.rels
         let relsDoc = new DOMParser().parseFromString(presRelsXml, 'application/xml');
         let relationships = relsDoc.getElementsByTagName('Relationship');
         for (let j = relationships.length - 1; j >= 0; j--) {
@@ -755,7 +753,6 @@ const App = {
         });
         newZip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(relsDoc));
 
-        // 3. Dynamic Content Type Sync
         await this.updateContentTypes(newZip, generated);
     },
 
@@ -766,7 +763,6 @@ const App = {
         const ctDoc = parser.parseFromString(ctXml, 'application/xml');
         const typesEl = ctDoc.documentElement;
 
-        // Remove old slide/notes entries to prevent conflicts
         const overrides = Array.from(typesEl.getElementsByTagName('Override'));
         overrides.forEach(ov => {
             const pn = ov.getAttribute('PartName');
@@ -775,7 +771,6 @@ const App = {
             }
         });
 
-        // Add fresh entries for our newly generated content
         generated.forEach(s => {
             const sEl = ctDoc.createElement('Override');
             sEl.setAttribute('PartName', `/${s.path}`);
