@@ -1,8 +1,8 @@
-/* LyricSlide Pro - Core Logic v15.2 (Infra Upgrade + Versioning) */
+/* LyricSlide Pro - Core Logic v15.2 (Presenter Notes Preview) */ 
 
 const App = {
     // --- APP METADATA ---
-    version: "v15.2 (WITH LIVE PREVIEW)",
+   version: "v15.2 (Presenter Notes Preview)", 
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -26,25 +26,26 @@ const App = {
     originalSlides: [],   // Slide data for live preview
     selectedTemplateFile: null, // Currently selected template File object
 
+   
+
     init() {
-        this.displayVersion(); // Visual version update
+        this.displayVersion(); // Call visual display
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
-
-        // LIVE PREVIEW:
+        
+        // ADD THIS: Trigger preview when file is selected
         this.elements.transFileInput.addEventListener('change', (e) => {
             if (e.target.files[0]) this.loadForPreview(e.target.files[0]);
         });
         
         this.theme.init();
-        this.loadDefaultTemplates(); // Auto-load from templates.json
+        this.loadDefaultTemplates(); 
         window.LyricApp = this;
     },
 
     displayVersion() {
         const el = document.getElementById('versionDisplay');
         if (el) el.textContent = this.version;
-        console.log(`LyricSlide Pro Initialized: ${this.version}`);
     },
 
     // --- THEME MANAGEMENT ---
