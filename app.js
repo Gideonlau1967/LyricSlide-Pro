@@ -1,7 +1,7 @@
-/* LyricSlide Pro - Core Logic v19.1 (Visible Table Fix) */
+/* LyricSlide Pro - Core Logic v19.4 (Centralized + Template Font) */
 
 const App = {
-    version: "v19.1 (Visible Table)",
+    version: "v19.4 (Centralized)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -26,13 +26,11 @@ const App = {
     init() {
         const verEl = document.getElementById('appVersion');
         if (verEl) verEl.textContent = this.version;
-
-        this.elements.generateBtn.addEventListener('click', () => this.generate());
-        this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+        if (this.elements.generateBtn) this.elements.generateBtn.onclick = () => this.generate();
+        if (this.elements.transposeBtn) this.elements.transposeBtn.onclick = () => this.transpose();
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
-        console.log(`App Initialized. ${this.version}`);
     },
 
     theme: {
@@ -42,15 +40,6 @@ const App = {
             Object.keys(this.defaults).forEach(key => {
                 const val = saved[key] || this.defaults[key];
                 document.documentElement.style.setProperty(key, val);
-                const picker = document.getElementById('picker-' + key.replace('--', '').replace('-color', ''));
-                if (picker) picker.value = val;
-            });
-            document.querySelectorAll('.color-picker-input').forEach(picker => {
-                picker.addEventListener('input', (e) => {
-                    const id = e.target.id;
-                    const map = { 'picker-primary': '--primary-color', 'picker-bg-start': '--bg-start', 'picker-bg-end': '--bg-end', 'picker-text': '--text-main', 'picker-card-accent': '--card-accent', 'picker-preview-bg': '--preview-card-bg', 'picker-chord': '--preview-chord-color', 'picker-lyrics': '--preview-lyrics-color' };
-                    document.documentElement.style.setProperty(map[id], e.target.value);
-                });
             });
         }
     },
@@ -86,7 +75,7 @@ const App = {
     async generate() {
         if (!this.selectedTemplateFile || !this.elements.lyricsInput.value) return alert('Select template and enter lyrics.');
         try {
-            this.showLoading('Generating...');
+            this.showLoading('Generating Centralized Slides...');
             const zip = await JSZip.loadAsync(this.selectedTemplateFile);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
@@ -116,15 +105,10 @@ const App = {
         } catch (e) { this.hideLoading(); alert("Error during generation."); }
     },
 
-    // --- RE-BUILT REPLACEMENT ENGINE (Fixes the "Invisible Table" Bug) ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
-        // Build regex that ignores case AND ignores internal XML tags between letters
         const createFuzzyRegex = (ph) => {
             const inner = ph.replace(/[\[\]]/g, '').trim();
-            // Handle optional spaces around the word (to match "[ TITLE ]" or "[Title]")
-            const fuzzy = inner.split('').map(c => 
-                c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`
-            ).join('(?:<[^>]+>)*');
+            const fuzzy = inner.split('').map(c => c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`).join('(?:<[^>]+>)*');
             return new RegExp('\\[' + '(?:<[^>]+>|\\s)*' + fuzzy + '(?:<[^>]+>|\\s)*' + '\\]', 'gi');
         };
 
@@ -140,7 +124,6 @@ const App = {
                 const sizeMatch = innerContent.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                // Non-lyrics (Title/Copyright)
                 if (!/Lyrics/i.test(placeholder)) {
                     const rPrMatch = innerContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -148,24 +131,39 @@ const App = {
                     return `<${tagName}>${innerContent.replace(phRegex, escapedText)}</${tagName}>`;
                 }
 
-                // Table Logic
+                // CENTRALIZED TABLE FILL
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
+
                 lines.forEach((line) => {
                     let trimmed = line.trim();
                     if (trimmed === '') { tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000); return; }
-                    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                    
+                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
+                    const hasChords = line.match(chordRegex);
+
+                    if (isTag) {
+                        // Tags: Template Font, Centered
                         tableRowsXml += this.createTableCellXml(trimmed, templateFont, Math.round(templateSize * 0.8), "ctr", 400000);
-                    } else if (line.match(chordRegex)) {
-                        tableRowsXml += this.createTableCellXml(this.escXml(line).replace(/ /g, '&#160;'), "Courier New", templateSize, "l", 400000);
+                    } else if (hasChords) {
+                        // Chords: Courier New, Centered
+                        const esc = this.escXml(line).replace(/ /g, '&#160;');
+                        tableRowsXml += this.createTableCellXml(esc, "Courier New", templateSize, "ctr", 400000);
                     } else {
+                        // Lyrics: Template Font, Centered
                         tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
                     }
                 });
 
-                // FIXED: Split the content ONLY, and re-wrap in the existing tagName to avoid double tags
                 const rowsSplit = innerContent.split(/<a:tr[\s\S]*?<\/a:tr>/);
-                const newInner = `${rowsSplit[0]}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}`;
+                let header = rowsSplit[0];
+
+                // FORCE TRANSPARENCY
+                if(!header.includes('<a:wholeTbl>')){
+                    header = header.replace('</a:tblPr>', '<a:wholeTbl><a:tcPr><a:noFill/></a:tcPr></a:wholeTbl></a:tblPr>');
+                }
+
+                const newInner = `${header}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}`;
                 return `<${tagName}>${newInner}</${tagName}>`;
             }
             return fullFrame;
@@ -194,7 +192,7 @@ const App = {
         let entries = gen.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
         zip.file('[Content_Types].xml', (head + entries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
     },
-    async transpose() { /* Placeholder */ },
+    async transpose() { /* Optional Transpose Logic */ },
     transposeLine(t, s) { return t; }
 };
 
