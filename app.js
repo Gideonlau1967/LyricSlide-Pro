@@ -674,7 +674,7 @@ const App = {
         return outList[newIdx];
     },
 
-// --- TABLE METHOD: DYNAMIC SHRINK-WRAP (NO MAX-WIDTH) ---
+// --- TABLE METHOD: FULL-WIDTH CENTERED WITH LENGTH NORMALIZATION ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -683,7 +683,7 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
                 
-                // 1. EXTRACT TEMPLATE FONT & SIZE
+                // 1. EXTRACT TEMPLATE SETTINGS
                 const latinMatch = shapeXml.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = shapeXml.match(/sz="(\d+)"/);
@@ -698,22 +698,9 @@ const App = {
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                // 2. DYNAMIC WIDTH CALCULATION (SHRINK-WRAP)
-                const SLIDE_WIDTH_16_9 = 12192000; // Total widescreen width
+                // 2. WIDESCREEN CONSTANTS (16:9)
+                const MAX_SLIDE_WIDTH = 12192000; 
                 const lines = (replacement || '').split(/\r?\n/);
-                
-                // Find the longest line to define the table's "boundaries"
-                let maxChars = 0;
-                lines.forEach(l => { if(l.length > maxChars) maxChars = l.length; });
-
-                // Heuristic: ~125,000 EMUs per character for 24pt font
-                // This adjusts based on the font size found in your template
-                const emuPerChar = Math.round((parseInt(templateSize) / 2400) * 125000);
-                const tableWidth = maxChars * emuPerChar;
-                
-                // Calculate Offset to center the table container on the slide
-                const offsetX = Math.max(0, (SLIDE_WIDTH_16_9 - tableWidth) / 2);
-
                 let tableRowsXml = '';
 
                 for (let i = 0; i < lines.length; i++) {
@@ -729,27 +716,44 @@ const App = {
                     const chords = line.match(chordRegex) || [];
                     const isChordLine = chords.length > 0 && !isTag;
 
-                    // 3. FONT & ALIGNMENT LOGIC
                     let typeface = templateFont;
                     let fontSize = templateSize;
-                    let alignment = 'ctr'; // Lyrics and Tags are centered
+                    let processedText = line;
 
+                    // 3. PRECISION ALIGNMENT LOGIC (LENGTH NORMALIZATION)
                     if (isChordLine) {
-                        typeface = "Courier New"; // Force monospaced for space-precision
+                        typeface = "Courier New"; // Monospace for 1:1 character alignment
                         fontSize = Math.round(parseInt(templateSize) * 0.8);
-                        alignment = 'l'; // Chords MUST be left-aligned within the table
+                        
+                        // If there is a lyric line below, make them the same length
+                        if (lines[i+1] && !lines[i+1].trim().startsWith('[')) {
+                            const lyricLine = lines[i+1];
+                            const diff = lyricLine.length - line.length;
+                            if (diff > 0) {
+                                processedText = line + " ".repeat(diff); // Pad chord line
+                            }
+                        }
+                    } else if (!isTag && i > 0) {
+                        // Check if the chord line ABOVE was longer than this lyric
+                        const lineAbove = lines[i-1];
+                        if (lineAbove.match(chordRegex)) {
+                            const diff = lineAbove.length - line.length;
+                            if (diff > 0) {
+                                processedText = line + " ".repeat(diff); // Pad lyric line
+                            }
+                        }
                     }
 
-                    // Convert spaces to Non-Breaking Spaces for stability
-                    const escapedLine = this.escXml(line).replace(/ /g, '&#160;');
+                    // Convert spaces to Non-Breaking Spaces for XML stability
+                    const escapedLine = this.escXml(processedText).replace(/ /g, '&#160;');
 
                     tableRowsXml += `
-                        <a:tr h="450000">
+                        <a:tr h="400000">
                             <a:tc>
                                 <a:txBody>
                                     <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
                                     <a:p>
-                                        <a:pPr algn="${alignment}"><a:buNone/></a:pPr>
+                                        <a:pPr algn="ctr"><a:buNone/></a:pPr>
                                         <a:r>
                                             <a:rPr sz="${fontSize}" lang="en-US">
                                                 <a:latin typeface="${typeface}"/>
@@ -764,7 +768,7 @@ const App = {
                         </a:tr>`;
                 }
 
-                // 4. GENERATE THE CENTERED GRAPHIC FRAME
+                // 4. GENERATE FULL-WIDTH TABLE
                 return `
                 <p:graphicFrame>
                     <p:nvGraphicFramePr>
@@ -772,16 +776,14 @@ const App = {
                         <p:cNvGraphicFramePr/><p:nvPr/>
                     </p:nvGraphicFramePr>
                     <p:xfm>
-                        <a:off x="${Math.round(offsetX)}" y="1000000"/> 
-                        <a:ext cx="${tableWidth}" cy="5000000"/>
+                        <a:off x="0" y="1000000"/> 
+                        <a:ext cx="${MAX_SLIDE_WIDTH}" cy="5000000"/>
                     </p:xfm>
                     <a:graphic>
                         <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
                             <a:tbl>
-                                <a:tblPr firstRow="0" bandRow="0">
-                                    <a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>
-                                </a:tblPr>
-                                <a:tblGrid><a:gridCol w="${tableWidth}"/></a:tblGrid>
+                                <a:tblPr firstRow="0" bandRow="0"><a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId></a:tblPr>
+                                <a:tblGrid><a:gridCol w="${MAX_SLIDE_WIDTH}"/></a:tblGrid>
                                 ${tableRowsXml}
                             </a:tbl>
                         </a:graphicData>
