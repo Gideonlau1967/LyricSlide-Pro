@@ -1,8 +1,8 @@
-/* LyricSlide Pro - Core Logic v15.2 (Presenter Notes Preview) */ 
+/* LyricSlide Pro - Core Logic v15.3 (Presenter Notes Preview) */ 
 
 const App = {
     // --- APP METADATA ---
-   version: "v15.2 (Presenter Notes Preview)", 
+   version: "v15.3 (Presenter Notes Preview)", 
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -171,68 +171,61 @@ const App = {
 
     async loadForPreview(file) {
         try {
-            this.showLoading('Extracting slide text...');
+            this.showLoading('Reading Presenter Notes...');
             const zip = await JSZip.loadAsync(file);
-            const slideFiles = Object.keys(zip.files)
-                .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
-                .sort((a, b) => {
-                    const numA = parseInt(a.match(/\d+/)[0]);
-                    const numB = parseInt(b.match(/\d+/)[0]);
-                    return numA - numB;
-                });
+            const presXml = await zip.file('ppt/presentation.xml').async('string');
+            const slideIds = this.getSlideIds(presXml);
+            const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
+            const slideRels = this.getSlideRels(presRelsXml);
 
             this.originalSlides = [];
             let globalSongTitle = "";
 
-            for (const path of slideFiles) {
-                const xml = await zip.file(path).async('string');
-                const slideData = [];
+            for (const sld of slideIds) {
+                const slideRelPath = slideRels[sld.rid];
+                const slideFileName = slideRelPath.split('/').pop();
+                const slidePath = `ppt/${slideRelPath}`;
                 
-                // Match shapes to identify placeholders
-                const spRegex = /<p:sp>([\s\S]*?)<\/p:sp>/g;
-                let spMatch;
-                
-                while ((spMatch = spRegex.exec(xml)) !== null) {
-                    const spContent = spMatch[1];
-                    const phMatch = spContent.match(/<p:ph[^>]*type="(?:title|ctrTitle|ftr|dt|sldNum)"/);
-                    const isExcludedShape = !!phMatch;
+                // Get Title from Slide
+                const slideXml = await zip.file(slidePath).async('string');
+                if (!globalSongTitle) {
+                    const titleMatch = slideXml.match(/<a:t>([^<]+)<\/a:t>/);
+                    if (titleMatch) globalSongTitle = this.unescXml(titleMatch[1]);
+                }
 
-                    const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
-                    let pMatch;
-                    
-                    while ((pMatch = pRegex.exec(spContent)) !== null) {
-                        const pContent = pMatch[1];
-                        const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-                        let pText = '';
-                        let match;
-                        while ((match = tagRegex.exec(pContent)) !== null) {
-                            if (match[0].startsWith('<a:br')) pText += '\n';
-                            else pText += this.unescXml(match[2] || '');
+                // Find Notes for this slide
+                const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
+                const relsFile = zip.file(relsPath);
+                let noteText = "";
+
+                if (relsFile) {
+                    const relsXml = await relsFile.async('string');
+                    const notesPath = this.getNotesRelPath(relsXml);
+                    if (notesPath && zip.file(notesPath)) {
+                        const notesXml = await zip.file(notesPath).async('string');
+                        const tRegex = /<a:t[^>]*>(.*?)<\/a:t>/g;
+                        let tMatch;
+                        while ((tMatch = tRegex.exec(notesXml)) !== null) {
+                            const txt = this.unescXml(tMatch[1]);
+                            if (!/^\d+$/.test(txt.trim())) noteText += txt + " ";
                         }
-                        
-                        // Detect alignment
-                        let alignment = 'left';
-                        const algMatch = pContent.match(/algn="([^"]+)"/);
-                        if (algMatch && algMatch[1] === 'ctr') alignment = 'center';
-
-                        const isPlaceholderTitle = phMatch && (phMatch[0].includes('title') || phMatch[0].includes('ctrTitle'));
-                        if (isPlaceholderTitle && pText.trim() && !globalSongTitle) {
-                            globalSongTitle = pText.trim();
-                        }
-
-                        slideData.push({ text: pText, alignment, isTitle: isExcludedShape });
                     }
                 }
-                this.originalSlides.push(slideData);
+                
+                this.originalSlides.push([{
+                    text: noteText.trim() || "(No notes for this slide)",
+                    alignment: 'left',
+                    isTitle: false
+                }]);
             }
-            this.songTitle = globalSongTitle; // Store globally
 
-            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides Loaded`;
+            this.songTitle = globalSongTitle;
+            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Notes Loaded`;
             this.updatePreview(0);
             this.hideLoading();
         } catch (err) {
             console.error(err);
-            alert("Error loading preview: " + err.message);
+            alert("Error loading notes: " + err.message);
             this.hideLoading();
         }
     },
