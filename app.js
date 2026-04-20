@@ -1,7 +1,7 @@
-/* LyricSlide Pro - Core Logic v19.4 (Centralized + Template Font) */
+/* LyricSlide Pro - Core Logic v19.5 (Deep Transparency) */
 
 const App = {
-    version: "v19.4 (Centralized)",
+    version: "v19.5 (Deep Transparency)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -27,7 +27,6 @@ const App = {
         const verEl = document.getElementById('appVersion');
         if (verEl) verEl.textContent = this.version;
         if (this.elements.generateBtn) this.elements.generateBtn.onclick = () => this.generate();
-        if (this.elements.transposeBtn) this.elements.transposeBtn.onclick = () => this.transpose();
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
@@ -75,7 +74,7 @@ const App = {
     async generate() {
         if (!this.selectedTemplateFile || !this.elements.lyricsInput.value) return alert('Select template and enter lyrics.');
         try {
-            this.showLoading('Generating Centralized Slides...');
+            this.showLoading('Generating...');
             const zip = await JSZip.loadAsync(this.selectedTemplateFile);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
@@ -105,10 +104,13 @@ const App = {
         } catch (e) { this.hideLoading(); alert("Error during generation."); }
     },
 
+    // --- REPLACEMENT ENGINE: Locates by Placeholder ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const createFuzzyRegex = (ph) => {
             const inner = ph.replace(/[\[\]]/g, '').trim();
-            const fuzzy = inner.split('').map(c => c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`).join('(?:<[^>]+>)*');
+            const fuzzy = inner.split('').map(c => 
+                c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`
+            ).join('(?:<[^>]+>)*');
             return new RegExp('\\[' + '(?:<[^>]+>|\\s)*' + fuzzy + '(?:<[^>]+>|\\s)*' + '\\]', 'gi');
         };
 
@@ -124,6 +126,7 @@ const App = {
                 const sizeMatch = innerContent.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
+                // Process Non-Lyrics (Title/Copyright)
                 if (!/Lyrics/i.test(placeholder)) {
                     const rPrMatch = innerContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -131,35 +134,40 @@ const App = {
                     return `<${tagName}>${innerContent.replace(phRegex, escapedText)}</${tagName}>`;
                 }
 
-                // CENTRALIZED TABLE FILL
+                // --- RE-ENGINEERED TABLE LOGIC ---
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
 
                 lines.forEach((line) => {
                     let trimmed = line.trim();
-                    if (trimmed === '') { tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000); return; }
-                    
+                    if (trimmed === '') {
+                        tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000);
+                        return;
+                    }
                     const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
                     const hasChords = line.match(chordRegex);
 
                     if (isTag) {
-                        // Tags: Template Font, Centered
                         tableRowsXml += this.createTableCellXml(trimmed, templateFont, Math.round(templateSize * 0.8), "ctr", 400000);
                     } else if (hasChords) {
-                        // Chords: Courier New, Centered
+                        // Stacked Center: Monospace + Center Align
                         const esc = this.escXml(line).replace(/ /g, '&#160;');
                         tableRowsXml += this.createTableCellXml(esc, "Courier New", templateSize, "ctr", 400000);
                     } else {
-                        // Lyrics: Template Font, Centered
+                        // Stacked Center: Template Font + Center Align
                         tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
                     }
                 });
 
+                // --- AGGRESSIVE TRANSPARENCY FIX ---
                 const rowsSplit = innerContent.split(/<a:tr[\s\S]*?<\/a:tr>/);
                 let header = rowsSplit[0];
-
-                // FORCE TRANSPARENCY
-                if(!header.includes('<a:wholeTbl>')){
+                
+                // 1. Wipe out any existing table style IDs and clear table fill
+                header = header.replace(/<a:tableStyleId>[\s\S]*?<\/a:tableStyleId>/, '<a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>');
+                
+                // 2. Inject transparent Whole Table property
+                if (header.includes('</a:tblPr>')) {
                     header = header.replace('</a:tblPr>', '<a:wholeTbl><a:tcPr><a:noFill/></a:tcPr></a:wholeTbl></a:tblPr>');
                 }
 
@@ -170,8 +178,32 @@ const App = {
         });
     },
 
+    // --- CELL-LEVEL TRANSPARENCY ---
     createTableCellXml(text, font, size, align, height) {
-        return `<a:tr h="${height}"><a:tc><a:txBody><a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/><a:p><a:pPr algn="${align}"/><a:r><a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr><a:t xml:space="preserve">${text}</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB><a:solidFill><a:noFill/></a:solidFill></a:tcPr></a:tc></a:tr>`;
+        return `
+        <a:tr h="${height}">
+            <a:tc>
+                <a:txBody>
+                    <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
+                    <a:p>
+                        <a:pPr algn="${align}"/>
+                        <a:r>
+                            <a:rPr sz="${size}" lang="en-US">
+                                <a:latin typeface="${font}"/><a:cs typeface="${font}"/>
+                            </a:rPr>
+                            <a:t xml:space="preserve">${text}</a:t>
+                        </a:r>
+                    </a:p>
+                </a:txBody>
+                <a:tcPr>
+                    <a:lnL w="0"><a:noFill/></a:lnL>
+                    <a:lnR w="0"><a:noFill/></a:lnR>
+                    <a:lnT w="0"><a:noFill/></a:lnT>
+                    <a:lnB w="0"><a:noFill/></a:lnB>
+                    <a:noFill/> <!-- EXPLICIT CELL TRANSPARENCY -->
+                </a:tcPr>
+            </a:tc>
+        </a:tr>`;
     },
 
     showLoading(t) { this.elements.loadingText.textContent = t; this.elements.loadingOverlay.style.display = 'flex'; },
@@ -192,7 +224,7 @@ const App = {
         let entries = gen.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
         zip.file('[Content_Types].xml', (head + entries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
     },
-    async transpose() { /* Optional Transpose Logic */ },
+    async transpose() { /* Optional */ },
     transposeLine(t, s) { return t; }
 };
 
