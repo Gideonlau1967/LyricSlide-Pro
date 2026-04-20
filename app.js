@@ -1,6 +1,7 @@
 /* LyricSlide Pro - Core Logic v12 (Integrated Generation & Transposition) */
 
 const App = {
+    version: "Core Logic v12 (Integrated Generation & Transposition)",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -27,6 +28,16 @@ const App = {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
+        // Add this line:
+        if (this.elements.versionDisplay) {
+            this.elements.versionDisplay.textContent = `v${this.version}`;
+        }
+
+        this.theme.init();
+        this.loadDefaultTemplates(); 
+        window.LyricApp = this;
+        console.log(`App Initialized. Version ${this.version}`);
+    },
         this.theme.init();
         this.loadDefaultTemplates(); // Auto-load from templates.json
         window.LyricApp = this;
