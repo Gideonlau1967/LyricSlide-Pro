@@ -1,7 +1,7 @@
-/* LyricSlide Pro - Core Logic v19.5 (Deep Transparency) */
+/* LyricSlide Pro - Core Logic v21.0 (Full v12 Transpose Port) */
 
 const App = {
-    version: "v19.5 (Deep Transparency)",
+    version: "v21.0 (Master Hybrid)",
 
     elements: {
         songTitle: document.getElementById('songTitle'),
@@ -20,18 +20,27 @@ const App = {
         flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    originalSlides: [],   
+    originalSlides: [],   // Live preview data
     selectedTemplateFile: null, 
 
     init() {
         const verEl = document.getElementById('appVersion');
         if (verEl) verEl.textContent = this.version;
+        
         if (this.elements.generateBtn) this.elements.generateBtn.onclick = () => this.generate();
+        if (this.elements.transposeBtn) this.elements.transposeBtn.onclick = () => this.transpose();
+        
+        // Trigger live preview on file selection
+        if (this.elements.transFileInput) {
+            this.elements.transFileInput.onchange = (e) => this.loadForPreview(e.target.files[0]);
+        }
+
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
     },
 
+    // --- THEME MANAGEMENT ---
     theme: {
         defaults: { '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc', '--text-main': '#1e293b', '--card-accent': '#e2e8f0', '--preview-card-bg': '#ffffff', '--preview-chord-color': '#334155', '--preview-lyrics-color': '#1e293b' },
         init() {
@@ -43,36 +52,232 @@ const App = {
         }
     },
 
-    async loadDefaultTemplates() {
-        const gallery = document.getElementById('templateGallery');
+    // --- TRANSPOSITION ENGINE (Full v12 Port) ---
+    async transpose() {
+        const file = this.elements.transFileInput.files[0];
+        const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
+
+        // Font settings from UI
+        const getSz = id => { 
+            const el = document.getElementById(id);
+            if (!el) return null;
+            const v = parseFloat(el.value); 
+            return (!isNaN(v) && v > 0) ? Math.round(v * 100) : null; 
+        };
+        const getFont = id => document.getElementById(id)?.value?.trim();
+
+        const titleFont   = getFont('fontTitle');    const titleSize   = getSz('fontSizeTitle');
+        const lyricsFont  = getFont('fontLyrics');   const lyricsSize  = getSz('fontSizeLyrics');
+        const copyFont    = getFont('fontCopyright');const copySize    = getSz('fontSizeCopyright');
+
+        const anyFontChange = titleFont || titleSize || lyricsFont || lyricsSize || copyFont || copySize;
+
+        if (!file) return alert('Select a PPTX file to transpose.');
+        if (semitones === 0 && !anyFontChange) return alert('Please select a transposition amount or font settings.');
+
         try {
-            const res = await fetch('./templates.json');
-            const names = await res.json();
-            document.getElementById('dirName').textContent = `${names.length} templates available`;
-            gallery.innerHTML = '';
-            const grid = document.createElement('div');
-            grid.className = 'template-grid';
-            names.forEach(name => {
-                const card = document.createElement('div');
-                card.className = 'template-card';
-                card.innerHTML = `<img class="template-thumb" src="${name.replace('.pptx','.png')}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23eee%22/><text x=%2250%%22 y=%2250%%22 text-anchor=%22middle%22 dy=%22.3em%22 font-family=%22sans-serif%22 fill=%22%23999%22>PPTX</text></svg>'"><div class="template-card-name">${name.replace('.pptx','')}</div>`;
-                card.onclick = async () => {
-                    const r = await fetch(`./${encodeURIComponent(name)}`);
-                    const blob = await r.blob();
-                    this.selectedTemplateFile = new File([blob], name, { type: blob.type });
-                    document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
-                    card.classList.add('selected');
-                    document.getElementById('selectedTemplateInfo').classList.remove('hidden');
-                    document.getElementById('selectedTemplateName').textContent = name;
-                };
-                grid.appendChild(card);
-            });
-            gallery.appendChild(grid);
-        } catch (e) { gallery.innerHTML = 'Library load failed.'; }
+            this.showLoading('Processing slides & notes...');
+            const zip = await JSZip.loadAsync(file);
+            
+            // 1. Process Slide Files
+            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
+
+            for (const path of slideFiles) {
+                let content = await zip.file(path).async('string');
+
+                // Transpose chords in text tags
+                if (semitones !== 0) {
+                    content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) =>
+                        `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
+                }
+
+                // Apply dynamic fonts/sizes per section
+                if (anyFontChange) {
+                    content = content.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeMatch, shapeContent) => {
+                        const isTitle    = /<p:ph[^>]*type="(?:title|ctrTitle)"/.test(shapeContent);
+                        const isFooter   = /<p:ph[^>]*type="ftr"/.test(shapeContent);
+                        const isSkipped  = /<p:ph[^>]*type="(?:dt|sldNum)"/.test(shapeContent);
+                        if (isSkipped) return shapeMatch;
+
+                        const plainText  = shapeContent.replace(/<[^>]+>/g, '');
+                        const isCopyright = isFooter || /©|copyright|ccli/i.test(plainText);
+
+                        let targetFont, targetSize;
+                        if (isTitle)          { targetFont = titleFont;  targetSize = titleSize;  }
+                        else if (isCopyright) { targetFont = copyFont;   targetSize = copySize;   }
+                        else                  { targetFont = lyricsFont; targetSize = lyricsSize; }
+
+                        if (!targetFont && !targetSize) return shapeMatch;
+                        return `<p:sp>${this.applyFontToShapeXml(shapeContent, targetFont, targetSize)}</p:sp>`;
+                    });
+                }
+                zip.file(path, content);
+            }
+
+            // 2. Process Presenter Notes (Chords only)
+            if (semitones !== 0) {
+                const notesFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
+                for (const path of notesFiles) {
+                    let notesContent = await zip.file(path).async('string');
+                    notesContent = notesContent.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) =>
+                        `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
+                    zip.file(path, notesContent);
+                }
+            }
+
+            this.showLoading('Downloading...');
+            const finalBlob = await zip.generateAsync({ type: 'blob' });
+            const suffix = semitones !== 0 ? `_transposed_${semitones}` : '_styled';
+            saveAs(finalBlob, file.name.replace('.pptx', `${suffix}.pptx`));
+            this.hideLoading();
+        } catch (err) {
+            console.error(err);
+            this.hideLoading();
+            alert("Error: " + err.message);
+        }
     },
 
+    transposeLine(text, semitones) {
+        if (semitones === 0) return text;
+        const lines = text.split('\n');
+        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
+        
+        return lines.map(line => {
+            const words = line.split(/\s+/).filter(w => w.length > 0);
+            const chordCount = (line.match(chordRegex) || []).length;
+            
+            // Heuristic check: Chord lines usually have more symbols relative to word count
+            if (chordCount === 0 || chordCount < words.length * 0.4) return line;
+
+            let result = line;
+            let offset = 0;
+            const matches = [...line.matchAll(chordRegex)];
+            
+            for (const m of matches) {
+                const originalChord = m[0];
+                const pos = m.index + offset;
+                const newChord = this.shiftNote(m[1], semitones) + (m[2] || '') + (m[3] ? '/' + this.shiftNote(m[3].substring(1), semitones) : '');
+
+                const diff = newChord.length - originalChord.length;
+                result = result.substring(0, pos) + newChord + result.substring(pos + originalChord.length);
+                
+                // Alignment compensation logic
+                if (diff > 0) {
+                    let spaceMatch = result.substring(pos + newChord.length).match(/^ +/);
+                    if (spaceMatch && spaceMatch[0].length >= diff) {
+                        result = result.substring(0, pos + newChord.length) + result.substring(pos + newChord.length + diff);
+                    } else { offset += diff; }
+                } else if (diff < 0) {
+                    result = result.substring(0, pos + newChord.length) + " ".repeat(Math.abs(diff)) + result.substring(pos + newChord.length);
+                }
+            }
+            return result;
+        }).join('\n');
+    },
+
+    shiftNote(note, semitones) {
+        let list = this.musical.keys;
+        if (note.includes('b')) list = this.musical.flats;
+        let idx = list.indexOf(note);
+        if (idx === -1) {
+            list = (list === this.musical.keys ? this.musical.flats : this.musical.keys);
+            idx = list.indexOf(note);
+        }
+        if (idx === -1) return note;
+        let newIdx = (idx + semitones + 12) % 12;
+        return (semitones >= 0 ? this.musical.keys : this.musical.flats)[newIdx];
+    },
+
+    applyFontToShapeXml(shapeXml, fontFamily, fontSizeHundredths) {
+        shapeXml = shapeXml.replace(/<a:rPr([^>]*)\/>/g, (_, attrs) => {
+            const newAttrs = this.applyFontSizeToAttrs(attrs, fontSizeHundredths);
+            return `<a:rPr${newAttrs}>${this.buildFontTags(fontFamily)}</a:rPr>`;
+        });
+        shapeXml = shapeXml.replace(/<a:rPr([^>]*)>([\s\S]*?)<\/a:rPr>/g, (_, attrs, inner) => {
+            const newAttrs = this.applyFontSizeToAttrs(attrs, fontSizeHundredths);
+            if (fontFamily) {
+                inner = inner.replace(/<a:(latin|ea|cs)[^>]*\/>/g, '').replace(/<a:(latin|ea|cs)[^>]*>[\s\S]*?<\/a:\1>/g, '');
+            }
+            return `<a:rPr${newAttrs}>${this.buildFontTags(fontFamily)}${inner}</a:rPr>`;
+        });
+        return shapeXml;
+    },
+
+    applyFontSizeToAttrs(attrs, sz) {
+        if (!sz) return attrs;
+        return /\bsz="[^"]+"/.test(attrs) ? attrs.replace(/\bsz="[^"]+"/, `sz="${sz}"`) : attrs + ` sz="${sz}"`;
+    },
+
+    buildFontTags(f) {
+        if (!f) return '';
+        const e = this.escXml(f);
+        return `<a:latin typeface="${e}"/><a:ea typeface="${e}"/><a:cs typeface="${e}"/>`;
+    },
+
+    // --- LIVE PREVIEW ---
+    async loadForPreview(file) {
+        if (!file) return;
+        try {
+            this.showLoading('Generating preview...');
+            const zip = await JSZip.loadAsync(file);
+            const slideFiles = Object.keys(zip.files)
+                .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
+                .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
+
+            this.originalSlides = [];
+            for (const path of slideFiles) {
+                const xml = await zip.file(path).async('string');
+                const slideData = [];
+                const spRegex = /<p:sp>([\s\S]*?)<\/p:sp>/g;
+                let spMatch;
+                while ((spMatch = spRegex.exec(xml)) !== null) {
+                    const spContent = spMatch[1];
+                    const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
+                    let pMatch;
+                    while ((pMatch = pRegex.exec(spContent)) !== null) {
+                        const pContent = pMatch[1];
+                        const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+                        let pText = '', match;
+                        while ((match = tagRegex.exec(pContent)) !== null) {
+                            if (match[0].startsWith('<a:br')) pText += '\n';
+                            else pText += this.unescXml(match[2] || '');
+                        }
+                        slideData.push({ text: pText, alignment: pContent.includes('algn="ctr"') ? 'center' : 'left' });
+                    }
+                }
+                this.originalSlides.push(slideData);
+            }
+            this.updatePreview(0);
+            this.hideLoading();
+        } catch (err) { this.hideLoading(); }
+    },
+
+    updatePreview(semitones) {
+        const container = document.getElementById('previewContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        this.originalSlides.forEach((slideData, idx) => {
+            const card = document.createElement('div');
+            card.className = 'preview-card';
+            const content = document.createElement('div');
+            content.className = 'slide-content';
+            slideData.forEach(p => {
+                if (p.text.trim()) {
+                    const l = document.createElement('div');
+                    l.style.textAlign = p.alignment;
+                    l.innerHTML = this.transposeLine(this.escXml(p.text), semitones).replace(/\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g, '<span class="chord">$&</span>');
+                    content.appendChild(l);
+                }
+            });
+            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2">Slide ${idx+1}</div>`;
+            card.appendChild(content);
+            container.appendChild(card);
+        });
+    },
+
+    // --- GENERATION ENGINE ---
     async generate() {
-        if (!this.selectedTemplateFile || !this.elements.lyricsInput.value) return alert('Select template and enter lyrics.');
+        if (!this.selectedTemplateFile || !this.elements.lyricsInput.value) return alert('Select template and lyrics.');
         try {
             this.showLoading('Generating...');
             const zip = await JSZip.loadAsync(this.selectedTemplateFile);
@@ -85,11 +290,10 @@ const App = {
             
             const sections = ("\n" + this.elements.lyricsInput.value).split(/\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/).filter(s => s.trim() !== '');
             const generated = [];
-            const copyrightText = (this.elements.copyrightInfo.value ? this.elements.copyrightInfo.value + " | " : "") + "Generated by " + this.version;
 
             for (let i = 0; i < sections.length; i++) {
                 let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', this.elements.songTitle.value);
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyrightText);
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', this.elements.copyrightInfo.value);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sections[i].trim());
 
                 const name = `song_gen_${i + 1}.xml`;
@@ -101,32 +305,26 @@ const App = {
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
             saveAs(await zip.generateAsync({ type: 'blob' }), `${(this.elements.songTitle.value || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
             this.hideLoading();
-        } catch (e) { this.hideLoading(); alert("Error during generation."); }
+        } catch (e) { this.hideLoading(); alert("Generation error."); }
     },
 
-    // --- REPLACEMENT ENGINE: Locates by Placeholder ---
     lockInStyleAndReplace(xml, placeholder, replacement) {
         const createFuzzyRegex = (ph) => {
             const inner = ph.replace(/[\[\]]/g, '').trim();
-            const fuzzy = inner.split('').map(c => 
-                c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`
-            ).join('(?:<[^>]+>)*');
+            const fuzzy = inner.split('').map(c => c === ' ' ? '\\s*' : `${this.escRegex(c)}(?:<[^>]+>)*`).join('(?:<[^>]+>)*');
             return new RegExp('\\[' + '(?:<[^>]+>|\\s)*' + fuzzy + '(?:<[^>]+>|\\s)*' + '\\]', 'gi');
         };
-
         const phRegex = createFuzzyRegex(placeholder);
         const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
 
         return xml.replace(/<(p:sp|p:graphicFrame)>([\s\S]*?)<\/\1>/g, (fullFrame, tagName, innerContent) => {
             phRegex.lastIndex = 0;
             if (phRegex.test(innerContent)) {
-                
                 const latinMatch = innerContent.match(/<a:latin typeface="([^"]+)"/);
                 const templateFont = latinMatch ? latinMatch[1] : "Arial";
                 const sizeMatch = innerContent.match(/sz="(\d+)"/);
                 const templateSize = sizeMatch ? sizeMatch[1] : "2400"; 
 
-                // Process Non-Lyrics (Title/Copyright)
                 if (!/Lyrics/i.test(placeholder)) {
                     const rPrMatch = innerContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                     let style = (rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>');
@@ -134,82 +332,58 @@ const App = {
                     return `<${tagName}>${innerContent.replace(phRegex, escapedText)}</${tagName}>`;
                 }
 
-                // --- RE-ENGINEERED TABLE LOGIC ---
                 const lines = (replacement || '').split(/\r?\n/);
                 let tableRowsXml = '';
-
                 lines.forEach((line) => {
                     let trimmed = line.trim();
-                    if (trimmed === '') {
-                        tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000);
-                        return;
-                    }
-                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
-                    const hasChords = line.match(chordRegex);
-
-                    if (isTag) {
+                    if (trimmed === '') { tableRowsXml += this.createTableCellXml(" ", templateFont, templateSize, "ctr", 150000); return; }
+                    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
                         tableRowsXml += this.createTableCellXml(trimmed, templateFont, Math.round(templateSize * 0.8), "ctr", 400000);
-                    } else if (hasChords) {
-                        // Stacked Center: Monospace + Center Align
-                        const esc = this.escXml(line).replace(/ /g, '&#160;');
-                        tableRowsXml += this.createTableCellXml(esc, "Courier New", templateSize, "ctr", 400000);
+                    } else if (line.match(chordRegex)) {
+                        tableRowsXml += this.createTableCellXml(this.escXml(line).replace(/ /g, '&#160;'), "Courier New", templateSize, "ctr", 400000);
                     } else {
-                        // Stacked Center: Template Font + Center Align
                         tableRowsXml += this.createTableCellXml(this.escXml(line), templateFont, templateSize, "ctr", 450000);
                     }
                 });
 
-                // --- AGGRESSIVE TRANSPARENCY FIX ---
-                const rowsSplit = innerContent.split(/<a:tr[\s\S]*?<\/a:tr>/);
-                let header = rowsSplit[0];
-                
-                // 1. Wipe out any existing table style IDs and clear table fill
-                header = header.replace(/<a:tableStyleId>[\s\S]*?<\/a:tableStyleId>/, '<a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>');
-                
-                // 2. Inject transparent Whole Table property
-                if (header.includes('</a:tblPr>')) {
-                    header = header.replace('</a:tblPr>', '<a:wholeTbl><a:tcPr><a:noFill/></a:tcPr></a:wholeTbl></a:tblPr>');
-                }
-
-                const newInner = `${header}${tableRowsXml}${rowsSplit[rowsSplit.length - 1]}`;
-                return `<${tagName}>${newInner}</${tagName}>`;
+                let header = innerContent.split(/<a:tr[\s\S]*?<\/a:tr>/)[0].replace(/<a:tableStyleId>[\s\S]*?<\/a:tableStyleId>/, '<a:tableStyleId>{5C22544A-7EE6-4342-B051-7303C2061113}</a:tableStyleId>');
+                if (header.includes('</a:tblPr>')) header = header.replace('</a:tblPr>', '<a:wholeTbl><a:tcPr><a:noFill/></a:tcPr></a:wholeTbl></a:tblPr>');
+                return `<${tagName}>${header}${tableRowsXml}</${tagName}>`;
             }
             return fullFrame;
         });
     },
 
-    // --- CELL-LEVEL TRANSPARENCY ---
     createTableCellXml(text, font, size, align, height) {
-        return `
-        <a:tr h="${height}">
-            <a:tc>
-                <a:txBody>
-                    <a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/>
-                    <a:p>
-                        <a:pPr algn="${align}"/>
-                        <a:r>
-                            <a:rPr sz="${size}" lang="en-US">
-                                <a:latin typeface="${font}"/><a:cs typeface="${font}"/>
-                            </a:rPr>
-                            <a:t xml:space="preserve">${text}</a:t>
-                        </a:r>
-                    </a:p>
-                </a:txBody>
-                <a:tcPr>
-                    <a:lnL w="0"><a:noFill/></a:lnL>
-                    <a:lnR w="0"><a:noFill/></a:lnR>
-                    <a:lnT w="0"><a:noFill/></a:lnT>
-                    <a:lnB w="0"><a:noFill/></a:lnB>
-                    <a:noFill/> <!-- EXPLICIT CELL TRANSPARENCY -->
-                </a:tcPr>
-            </a:tc>
-        </a:tr>`;
+        return `<a:tr h="${height}"><a:tc><a:txBody><a:bodyPr vert="ctr" anchor="ctr" lIns="0" rIns="0" tIns="0" bIns="0"/><a:p><a:pPr algn="${align}"/><a:r><a:rPr sz="${size}" lang="en-US"><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:r><a:t xml:space="preserve">${text}</a:t></a:r></a:p></a:txBody><a:tcPr><a:lnL w="0"><a:noFill/></a:lnL><a:lnR w="0"><a:noFill/></a:lnR><a:lnT w="0"><a:noFill/></a:lnT><a:lnB w="0"><a:noFill/></a:lnB><a:noFill/></a:tcPr></a:tc></a:tr>`;
+    },
+
+    async loadDefaultTemplates() {
+        const gallery = document.getElementById('templateGallery');
+        try {
+            const res = await fetch('./templates.json');
+            const names = await res.json();
+            gallery.innerHTML = '';
+            names.forEach(name => {
+                const card = document.createElement('div');
+                card.className = 'template-card';
+                card.innerHTML = `<img class="template-thumb" src="${name.replace('.pptx','.png')}"><div class="template-card-name">${name.replace('.pptx','')}</div>`;
+                card.onclick = async () => {
+                    const r = await fetch(`./${encodeURIComponent(name)}`);
+                    this.selectedTemplateFile = new File([await r.blob()], name);
+                    document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+                    card.classList.add('selected');
+                };
+                gallery.appendChild(card);
+            });
+        } catch (e) { gallery.innerHTML = 'Template error.'; }
     },
 
     showLoading(t) { this.elements.loadingText.textContent = t; this.elements.loadingOverlay.style.display = 'flex'; },
     hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
-    escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
+    unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
     escXml(s) { return (s||'').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c])); },
+    escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
     getSlideIds(xml) { let ids = [], m, r = /<p:sldId[^>]+id="([^"]+)"[^>]+r:id="([^"]+)"/g; while (m = r.exec(xml)) ids.push({id: m[1], rid: m[2]}); return ids; },
     getSlideRels(xml) { let rels = {}, m, r = /<Relationship[^>]+Id="([^"]+)"[^>]+Type="[^"]+slide"[^>]+Target="([^"]+)"/g; while (m = r.exec(xml)) rels[m[1]] = m[2]; return rels; },
     syncPresentationRegistry(zip, pres, rels, gen) {
@@ -223,9 +397,14 @@ const App = {
         const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="pptx" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>';
         let entries = gen.map(s => `<Override PartName="/${s.path}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('');
         zip.file('[Content_Types].xml', (head + entries + '</Types>').replace('><Override', '><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'));
-    },
-    async transpose() { /* Optional */ },
-    transposeLine(t, s) { return t; }
+    }
 };
+
+function changeSemitones(delta) {
+    const d = document.getElementById('semitoneDisplay');
+    let n = Math.max(-11, Math.min(11, (parseInt(d.textContent) || 0) + delta));
+    d.textContent = (n > 0 ? '+' : '') + n;
+    if (App.originalSlides.length > 0) App.updatePreview(n);
+}
 
 App.init();
