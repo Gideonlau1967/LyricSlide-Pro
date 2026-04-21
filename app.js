@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "1.2 Left & Centre",
+    version: "1.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -14,8 +14,6 @@ const App = {
         
         loadingOverlay: document.getElementById('loadingOverlay'),
         loadingText: document.getElementById('loadingText')
-
-        alignmentSelect: document.getElementById('alignmentSelect'), 
     },
 
     musical: {
@@ -29,11 +27,6 @@ const App = {
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
-
-        this.elements.alignmentSelect.addEventListener('change', () => {
-            const currentSemitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
-            this.updatePreview(currentSemitones);
-        });
 
         this.theme.init();
         this.loadDefaultTemplates(); // Auto-load from templates.json
@@ -266,20 +259,6 @@ const App = {
                     
                     if (text.trim() && !isMetadata && !isTitle) {
                         const lineDiv = document.createElement('div');
-
-                 // --- NEW ALIGNMENT LOGIC ---
-                    const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
-                    const isChordLine = (text.match(chordRegex) || []).length > 0;
-                
-                    if (userAlignPref === 'smart') {
-                        lineDiv.style.textAlign = isChordLine ? 'left' : 'center';
-                    } else if (userAlignPref === 'l') {
-                        lineDiv.style.textAlign = 'left';
-                    } else {
-                        lineDiv.style.textAlign = 'center';
-                    }
-                // ---------
-                        
                         lineDiv.style.textAlign = para.alignment;
                         lineDiv.style.minHeight = '1.2em';
                         const transposed = this.transposeLine(para.text, semitones);
@@ -728,8 +707,6 @@ const App = {
                 // --- BRANCH B: Lyrics and Chords (HYBRID ALIGNMENT + 18PT CHORDS) ---
                 let injectedXml = `</a:t></a:r></a:p>`;
 
-                const userAlignPref = this.elements.alignmentSelect.value;
-
                 rawLines.forEach((line) => {
                     const trimmed = line.trim();
                     if (trimmed === '') {
@@ -737,33 +714,29 @@ const App = {
                         return;
                     }
 
+                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
                     const chords = line.match(chordRegex) || [];
                     const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-                    const isChordLine = chords.length > 0 && (chords.length >= words.length * 0.3 || words.length < 3);
-                
-                    // DETERMINING FINAL ALIGNMENT
+                    
                     let alignment = 'ctr';
-                    if (userAlignPref === 'l') {
-                        alignment = 'l';
-                    } else if (userAlignPref === 'ctr') {
-                        alignment = 'ctr';
-                    } else {
-                        // Smart mode
-                        alignment = isChordLine ? 'l' : 'ctr';
-                    }
-                
-                    let lineStyle = style;
+                    let lineStyle = style; // Default to template style
+
+                    // Determine if it's a chord line
+                    const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
+
                     if (isChordLine) {
-                        // Keep your 18pt logic for chords
+                        alignment = 'l';
+                        // FORCE 18pt (1800 units)
                         if (lineStyle.includes('sz=')) {
                             lineStyle = lineStyle.replace(/sz="\d+"/, 'sz="1800"');
                         } else {
+                            // If template had no size defined, inject it into the tag
                             lineStyle = lineStyle.replace('<a:rPr', '<a:rPr sz="1800"');
                         }
                     }
-                
+
                     const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
-                
+
                     injectedXml += `
                         <a:p>
                             <a:pPr algn="${alignment}">
@@ -776,7 +749,7 @@ const App = {
                         </a:p>`;
                 });
 
-                injectedXml += `<a:p><a:pPr algn="l"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
+                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
 
                 let result = shapeXml.replace(phRegex, () => injectedXml);
 
