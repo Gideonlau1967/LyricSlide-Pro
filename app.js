@@ -524,24 +524,30 @@ const App = {
     },
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
+        // 1. Get the 18pt style for the visible chords
         const chordStyle = this.getChordStyle(lyricStyle);
-        // Ghost Style: Invisible (noFill)
+
+        // 2. Get the "Ghost" style (Invisible, but matches LYRIC size)
         let ghostStyle = lyricStyle.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '');
         ghostStyle = ghostStyle.replace('<a:rPr', '<a:rPr><a:noFill/>');
 
         let runsXml = "";
+
         for (let i = 0; i < chordLine.length; i++) {
             const chordChar = chordLine[i];
             const lyricChar = lyricLine[i] || '\u00A0';
 
             if (chordChar === ' ' || chordChar === '\u00A0') {
+                // If it's a space, use a GHOST character at LYRIC size (large)
                 const escapedGhost = this.escXml(lyricChar).replace(/ /g, '\u00A0');
                 runsXml += `<a:r>${ghostStyle}<a:t xml:space="preserve">${escapedGhost}</a:t></a:r>`;
             } else {
+                // If it's a chord, use the CHORD size (small 18pt)
                 const escapedChord = this.escXml(chordChar).replace(/ /g, '\u00A0');
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${escapedChord}</a:t></a:r>`;
             }
         }
+
         return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
