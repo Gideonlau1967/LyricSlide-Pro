@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.1.2",
+    version: "2.2 Ghost Text",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -437,65 +437,76 @@ const App = {
         }
     },
 
-    // --- PRO-ALIGNMENT LOGIC (VER 2.1.2) ---
+    // --- PRO-ALIGNMENT LOGIC (VER 2.6.0 - REMOVED SMART ALIGN) ---
     lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
 
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
             if (phRegex.test(shapeXml)) {
+                // 1. Get the style from the template
                 const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
                 
                 const rawLines = (replacement || '').split(/\r?\n/);
 
+                // For Non-Lyric placeholders (Title/Copyright)
                 if (placeholder !== '[Lyrics and Chords]') {
                     const escapedText = rawLines.map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
                 let injectedXml = `</a:t></a:r></a:p>`;
+                const isCenter = (userAlign === 'ctr');
                 
                 for (let i = 0; i < rawLines.length; i++) {
                     let line = rawLines[i];
                     let nextLine = rawLines[i + 1];
 
+                    // Process Chord/Lyric Pairs
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         
-                        // CHANGED: Use let instead of const to avoid 'Assignment to constant variable' error
-                        let chordText = line;
-                        let lyricText = nextLine;
-                        let finalAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
+                        let chordLine = line;
+                        let lyricLine = nextLine;
 
-                        // Symmetric Balancing for Lyric-Priority Centering
-                        if (finalAlign === 'ctr') {
-                            const overhangRight = Math.max(0, chordText.length - lyricText.length);
-                            const leftPadding = " ".repeat(overhangRight);
-                            chordText = leftPadding + chordText;
-                            lyricText = leftPadding + lyricText + " ".repeat(overhangRight);
+                        if (isCenter) {
+                            // CENTER MODE: Use Ghost Alignment (noFill) to ensure vertical lock
+                            const maxLen = Math.max(chordLine.length, lyricLine.length);
+                            chordLine = chordLine.padEnd(maxLen, ' ');
+                            lyricLine = lyricLine.padEnd(maxLen, ' ');
+
+                            injectedXml += this.makeGhostAlignmentLine(chordLine, lyricLine, style, 'ctr');
+                            injectedXml += this.makePptLine(lyricLine, style, 'ctr');
+                        } else {
+                            // LEFT MODE: Standard spacing is usually sufficient for left align
+                            injectedXml += this.makePptLine(chordLine, this.getChordStyle(style), 'l');
+                            injectedXml += this.makePptLine(lyricLine, style, 'l');
                         }
-
-                        // Mixed Style: Spaces match lyric size, Chords use 18pt
-                        injectedXml += this.makeMixedStyleLine(chordText, style, finalAlign);
-                        injectedXml += this.makePptLine(lyricText, style, finalAlign);
                         
-                        i++; 
+                        i++; // Skip lyric line (already handled)
                     } 
                     else {
-                        if (line.trim() !== "") {
-                            let singleAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
-                            injectedXml += this.makePptLine(line.trim(), style, singleAlign);
+                        // Headers [Verse] or single lines
+                        const text = line.trim();
+                        const alignTag = isCenter ? 'ctr' : 'l';
+
+                        if (text !== "") {
+                            injectedXml += this.makePptLine(text, style, alignTag);
                         } else {
-                            injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                            // Spacer for empty lines
+                            injectedXml += `<a:p><a:pPr algn="${alignTag}"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
                         }
                     }
                 }
 
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
+                injectedXml += `<a:p><a:pPr algn="${isCenter ? 'ctr' : 'l'}"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
                 let result = shapeXml.replace(phRegex, () => injectedXml);
+                
+                // Cleanup: Remove orphaned empty lines generated by the logic
                 result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
                 
+                // Force Autofit to ensure long text doesn't spill out of the box
                 if (!result.includes('Autofit')) {
                     result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="92000" lnSpcReduction="10000"/></a:bodyPr>');
                 }
@@ -505,39 +516,33 @@ const App = {
         });
     },
 
-    makeMixedStyleLine(text, lyricStyle, align) {
-        const chordStyle = lyricStyle.includes('sz=') 
+    // Helper to extract chord style (18pt) from the base style
+    getChordStyle(lyricStyle) {
+        return lyricStyle.includes('sz=') 
             ? lyricStyle.replace(/sz="\d+"/, 'sz="1800"') 
             : lyricStyle.replace('<a:rPr', '<a:rPr sz="1800"');
+    },
+
+    makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
+        const chordStyle = this.getChordStyle(lyricStyle);
+        // Ghost Style: Invisible (noFill)
+        let ghostStyle = lyricStyle.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '');
+        ghostStyle = ghostStyle.replace('<a:rPr', '<a:rPr><a:noFill/>');
 
         let runsXml = "";
-        const segments = text.split(/(\s+)/);
-        
-        segments.forEach(segment => {
-            if (segment === "") return;
-            const isSpaces = /^\s+$/.test(segment);
-            const activeStyle = isSpaces ? lyricStyle : chordStyle;
-            const escaped = this.escXml(segment).replace(/ /g, '\u00A0');
-            runsXml += `<a:r>${activeStyle}<a:t xml:space="preserve">${escaped}</a:t></a:r>`;
-        });
+        for (let i = 0; i < chordLine.length; i++) {
+            const chordChar = chordLine[i];
+            const lyricChar = lyricLine[i] || '\u00A0';
 
+            if (chordChar === ' ' || chordChar === '\u00A0') {
+                const escapedGhost = this.escXml(lyricChar).replace(/ /g, '\u00A0');
+                runsXml += `<a:r>${ghostStyle}<a:t xml:space="preserve">${escapedGhost}</a:t></a:r>`;
+            } else {
+                const escapedChord = this.escXml(chordChar).replace(/ /g, '\u00A0');
+                runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${escapedChord}</a:t></a:r>`;
+            }
+        }
         return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr>${runsXml}</a:p>`;
-    },
-
-    makePptLine(text, style, align) {
-        const escaped = this.escXml(text).replace(/ /g, '\u00A0');
-        return `<a:p>
-            <a:pPr algn="${align}"><a:buNone/></a:pPr>
-            <a:r>${style}<a:t xml:space="preserve">${escaped}</a:t></a:r>
-        </a:p>`;
-    },
-
-    isChordLine(text) {
-        if (!text || text.trim() === '') return false;
-        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
-        const matches = text.match(chordRegex) || [];
-        const words = text.trim().split(/\s+/).filter(w => w.length > 0);
-        return matches.length > 0 && (matches.length >= words.length * 0.4 || words.length < 3);
     },
 
     // --- TRANSPOSITION LOGIC ---
