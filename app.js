@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.1",
+    version: "2.1.2",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -27,6 +27,11 @@ const App = {
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+        
+        // Add listener to update preview when alignment changes
+        document.getElementById('alignmentSelect').addEventListener('change', () => {
+            if (this.originalSlides.length > 0) this.updatePreview(0);
+        });
 
         this.theme.init();
         this.loadDefaultTemplates(); 
@@ -210,6 +215,7 @@ const App = {
 
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
+        const userAlign = document.getElementById('alignmentSelect').value;
         container.innerHTML = '';
         if (this.originalSlides.length === 0) {
             container.innerHTML = '<div class="md:col-span-2 lg:col-span-3 text-center py-20 text-slate-500 italic">No slides found.</div>';
@@ -228,14 +234,14 @@ const App = {
             
             for (let i = 0; i < slideData.length; i++) {
                 const para = slideData[i];
-                const text = para.text;
-                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
+                const originalText = para.text;
+                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(originalText);
                 
-                if (text.trim() && !isMetadata && !para.isTitle) {
+                if (originalText.trim() && !isMetadata && !para.isTitle) {
                     const lineDiv = document.createElement('div');
-                    lineDiv.style.textAlign = 'center'; 
+                    lineDiv.style.textAlign = (userAlign === 'l' ? 'left' : 'center'); 
                     lineDiv.style.minHeight = '1.2em';
-                    const transposed = this.transposeLine(text, semitones);
+                    const transposed = this.transposeLine(originalText, semitones);
                     lineDiv.innerHTML = this.renderChordHTML(transposed);
                     contentDiv.appendChild(lineDiv);
                 }
@@ -431,7 +437,7 @@ const App = {
         }
     },
 
-    // --- PRO-ALIGNMENT LOGIC (VER 2.1) ---
+    // --- PRO-ALIGNMENT LOGIC (VER 2.1.2) ---
     lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -457,8 +463,9 @@ const App = {
 
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         
-                        const chordText = line;
-                        const lyricText = nextLine;
+                        // CHANGED: Use let instead of const to avoid 'Assignment to constant variable' error
+                        let chordText = line;
+                        let lyricText = nextLine;
                         let finalAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
 
                         // Symmetric Balancing for Lyric-Priority Centering
@@ -509,7 +516,6 @@ const App = {
         segments.forEach(segment => {
             if (segment === "") return;
             const isSpaces = /^\s+$/.test(segment);
-            // Spaces use lyricStyle to maintain grid, chords use 18pt chordStyle
             const activeStyle = isSpaces ? lyricStyle : chordStyle;
             const escaped = this.escXml(segment).replace(/ /g, '\u00A0');
             runsXml += `<a:r>${activeStyle}<a:t xml:space="preserve">${escaped}</a:t></a:r>`;
@@ -607,8 +613,8 @@ const App = {
         shapeXml = shapeXml.replace(/<a:rPr([^>]*)>([\s\S]*?)<\/a:rPr>/g, (_, attrs, inner) => {
             const newAttrs = this.applyFontSizeToAttrs(attrs, fontSizeHundredths);
             if (fontFamily) {
-                inner = inner.replace(/<a:latin[^>]*\/>/g, '').replace(/<a:ea[^>]*\/>/g, '').replace(/<a:cs[^>]*\/>/g, '')
-                             .replace(/<a:latin[^>]*>[\s\S]*?<\/a:latin>/g, '').replace(/<a:ea[^>]*>[\s\S]*?<\/a:ea>/g, '').replace(/<a:cs[^>]*>[\s\S]*?<\/a:cs>/g, '');
+                inner = inner.replace(/<a:latin[^>]*\/>/g, '').replace(/<a:ea[^>]*\/>/g, '').replace(/<a:cs[^>]*\/>/g)
+                             .replace(/<a:latin[^>]*>[\s\S]*?<\/a:latin>/g, '').replace(/<a:ea[^>]*>[\s\S]*?<\/a:ea>/g, '').replace(/<a:cs[^>]*>[\s\S]*?<\/a:cs>/g);
             }
             return `<a:rPr${newAttrs}>${this.buildFontTags(fontFamily)}${inner}</a:rPr>`;
         });
