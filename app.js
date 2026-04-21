@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.1.2",
+    version: "2.2", // Updated Version
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -28,7 +28,6 @@ const App = {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
-        // Add listener to update preview when alignment changes
         document.getElementById('alignmentSelect').addEventListener('change', () => {
             if (this.originalSlides.length > 0) this.updatePreview(0);
         });
@@ -437,7 +436,7 @@ const App = {
         }
     },
 
-    // --- PRO-ALIGNMENT LOGIC (VER 2.1.2) ---
+    // --- PRO-ALIGNMENT LOGIC (VER 2.2) ---
     lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -449,11 +448,14 @@ const App = {
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
                 
                 const rawLines = (replacement || '').split(/\r?\n/);
-
                 if (placeholder !== '[Lyrics and Chords]') {
                     const escapedText = rawLines.map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                     return shapeXml.replace(phRegex, escapedText);
                 }
+
+                // STEP 1: Find longest line in this slide for Global Balancing
+                let maxSlideLen = 0;
+                rawLines.forEach(line => { if (line.length > maxSlideLen) maxSlideLen = line.length; });
 
                 let injectedXml = `</a:t></a:r></a:p>`;
                 
@@ -461,38 +463,46 @@ const App = {
                     let line = rawLines[i];
                     let nextLine = rawLines[i + 1];
 
+                    // Identify Musical Pair
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         
-                        // CHANGED: Use let instead of const to avoid 'Assignment to constant variable' error
                         let chordText = line;
                         let lyricText = nextLine;
-                        let finalAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
+                        
+                        // Default to LEFT align in the actual PPT property as requested
+                        let finalAlign = 'l'; 
 
-                        // Symmetric Balancing for Lyric-Priority Centering
-                        if (finalAlign === 'ctr') {
-                            const overhangRight = Math.max(0, chordText.length - lyricText.length);
-                            const leftPadding = " ".repeat(overhangRight);
-                            chordText = leftPadding + chordText;
-                            lyricText = leftPadding + lyricText + " ".repeat(overhangRight);
+                        // For Center or Smart modes, we calculate padding to make it LOOK centered
+                        if (userAlign === 'ctr' || userAlign === 'smart') {
+                            // Calculate how much left padding is needed to center the LYRIC relative to slide max width
+                            const leftPaddingSize = Math.floor(Math.max(0, maxSlideLen - lyricText.length) / 2);
+                            const buffer = " ".repeat(leftPaddingSize);
+                            
+                            chordText = buffer + chordText;
+                            lyricText = buffer + lyricText;
                         }
 
-                        // Mixed Style: Spaces match lyric size, Chords use 18pt
                         injectedXml += this.makeMixedStyleLine(chordText, style, finalAlign);
                         injectedXml += this.makePptLine(lyricText, style, finalAlign);
-                        
                         i++; 
                     } 
-                    else {
-                        if (line.trim() !== "") {
-                            let singleAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
-                            injectedXml += this.makePptLine(line.trim(), style, singleAlign);
-                        } else {
-                            injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                    else if (line.trim() !== "") {
+                        // Single Lines (Tags/Spoken Lyrics)
+                        let singleAlign = (userAlign === 'l') ? 'l' : 'l'; // Still property 'l'
+                        let text = line.trim();
+
+                        if (userAlign === 'ctr' || userAlign === 'smart') {
+                            const leftPaddingSize = Math.floor(Math.max(0, maxSlideLen - text.length) / 2);
+                            text = " ".repeat(leftPaddingSize) + text;
                         }
+
+                        injectedXml += this.makePptLine(text, style, singleAlign);
+                    } else {
+                        injectedXml += `<a:p><a:pPr algn="l"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
                     }
                 }
 
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
+                injectedXml += `<a:p><a:pPr algn="l"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
                 let result = shapeXml.replace(phRegex, () => injectedXml);
                 result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
                 
