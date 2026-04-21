@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "Version 2.0",
+    version: "2.1",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -226,15 +226,14 @@ const App = {
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
             
-            // Preview Pairing Logic
             for (let i = 0; i < slideData.length; i++) {
                 const para = slideData[i];
                 const text = para.text;
-                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:| Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
+                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
                 
                 if (text.trim() && !isMetadata && !para.isTitle) {
                     const lineDiv = document.createElement('div');
-                    lineDiv.style.textAlign = 'center'; // Preview defaults to center
+                    lineDiv.style.textAlign = 'center'; 
                     lineDiv.style.minHeight = '1.2em';
                     const transposed = this.transposeLine(text, semitones);
                     lineDiv.innerHTML = this.renderChordHTML(transposed);
@@ -432,7 +431,7 @@ const App = {
         }
     },
 
-    // --- PRO-ALIGNMENT REPLACEMENT LOGIC ---
+    // --- PRO-ALIGNMENT LOGIC (VER 2.1) ---
     lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
         const phRegexStr = this.getPlaceholderRegexStr(placeholder);
         const phRegex = new RegExp(phRegexStr, 'gi');
@@ -456,14 +455,13 @@ const App = {
                     let line = rawLines[i];
                     let nextLine = rawLines[i + 1];
 
-                    // Identify Musical Pair (Chords + Lyrics)
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         
-                        let chordText = line;
-                        let lyricText = nextLine;
+                        const chordText = line;
+                        const lyricText = nextLine;
                         let finalAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
 
-                        // Symmetric Balancing for Centered Modes
+                        // Symmetric Balancing for Lyric-Priority Centering
                         if (finalAlign === 'ctr') {
                             const overhangRight = Math.max(0, chordText.length - lyricText.length);
                             const leftPadding = " ".repeat(overhangRight);
@@ -471,8 +469,10 @@ const App = {
                             lyricText = leftPadding + lyricText + " ".repeat(overhangRight);
                         }
 
-                        injectedXml += this.makePptLine(chordText, style.replace('<a:rPr', '<a:rPr sz="1600"'), finalAlign);
+                        // Mixed Style: Spaces match lyric size, Chords use 18pt
+                        injectedXml += this.makeMixedStyleLine(chordText, style, finalAlign);
                         injectedXml += this.makePptLine(lyricText, style, finalAlign);
+                        
                         i++; 
                     } 
                     else {
@@ -496,6 +496,26 @@ const App = {
             }
             return shapeXml;
         });
+    },
+
+    makeMixedStyleLine(text, lyricStyle, align) {
+        const chordStyle = lyricStyle.includes('sz=') 
+            ? lyricStyle.replace(/sz="\d+"/, 'sz="1800"') 
+            : lyricStyle.replace('<a:rPr', '<a:rPr sz="1800"');
+
+        let runsXml = "";
+        const segments = text.split(/(\s+)/);
+        
+        segments.forEach(segment => {
+            if (segment === "") return;
+            const isSpaces = /^\s+$/.test(segment);
+            // Spaces use lyricStyle to maintain grid, chords use 18pt chordStyle
+            const activeStyle = isSpaces ? lyricStyle : chordStyle;
+            const escaped = this.escXml(segment).replace(/ /g, '\u00A0');
+            runsXml += `<a:r>${activeStyle}<a:t xml:space="preserve">${escaped}</a:t></a:r>`;
+        });
+
+        return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
     makePptLine(text, style, align) {
