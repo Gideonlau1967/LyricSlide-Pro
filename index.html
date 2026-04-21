@@ -12,7 +12,6 @@
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap');
         
         :root {
-            /* Default Minimal Theme */
             --primary-color: #334155;
             --primary-gradient: #334155;
             --bg-start: #f8fafc;
@@ -37,21 +36,9 @@
             transition: background 0.3s ease;
         }
 
-        .glass {
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-        }
-
-        .btn-primary {
-            background: var(--primary-color);
-            color: white;
-            transition: all 0.2s ease;
-        }
-
-        .btn-primary:hover {
-            opacity: 0.9;
-        }
+        .glass { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; }
+        .btn-primary { background: var(--primary-color); color: white; transition: all 0.2s ease; }
+        .btn-primary:hover { opacity: 0.9; }
 
         .tab-btn {
             padding: 12px 24px;
@@ -62,11 +49,7 @@
             color: var(--text-muted);
         }
 
-        .tab-btn.active {
-            background: white;
-            border: 1px solid #e2e8f0;
-            color: var(--primary-color);
-        }
+        .tab-btn.active { background: white; border: 1px solid #e2e8f0; color: var(--primary-color); }
 
         input, textarea, select {
             background: var(--input-bg) !important;
@@ -75,205 +58,65 @@
             color: var(--text-main) !important;
         }
 
-        input:focus, textarea:focus { 
-            border-color: var(--primary-color) !important; 
-            background: white !important;
-            outline: none;
-        }
+        input:focus, textarea:focus { border-color: var(--primary-color) !important; background: white !important; outline: none; }
 
         .loading-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(255,255,255,0.8);
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            backdrop-filter: blur(5px);
+            position: fixed; inset: 0; background: rgba(255,255,255,0.8); display: none;
+            flex-direction: column; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
         }
 
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #e2e8f0;
-            border-top-color: var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
+        .spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .preview-card {
-            background: var(--preview-card-bg);
-            border-radius: 8px;
-            padding: 24px;
-            font-family: 'Outfit', sans-serif;
-            white-space: pre;
-            overflow: auto;
-            border: 1px solid #e2e8f0;
-            font-size: 1.5rem;
-            line-height: 1.4;
-            aspect-ratio: 16 / 9;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            position: relative;
-            color: var(--preview-lyrics-color);
+            background: var(--preview-card-bg); border-radius: 8px; padding: 24px; font-family: 'Outfit', sans-serif;
+            white-space: pre; overflow: auto; border: 1px solid #e2e8f0; font-size: 1.5rem; line-height: 1.4;
+            aspect-ratio: 16 / 9; width: 100%; display: flex; flex-direction: column; position: relative; color: var(--preview-lyrics-color);
         }
 
-        .chord {
-            color: var(--preview-chord-color);
-            font-weight: 900;
-        }
+        .chord { color: var(--preview-chord-color); font-weight: 900; }
+        .slide-content { transform-origin: top center; width: 100%; transition: transform 0.1s ease-out; }
+        .preview-card-wrapper { width: 100%; overflow: visible; display: flex; justify-content: center; min-height: 0; }
 
-        .slide-content {
-            transform-origin: top center;
-            width: 100%;
-            transition: transform 0.1s ease-out;
-        }
-
-        .preview-card-wrapper {
-            width: 100%;
-            overflow: visible;
-            display: flex;
-            justify-content: center;
-            min-height: 0;
-        }
-
-        /* Settings Sidebar */
-        #themeSidebar {
-            position: fixed;
-            right: -350px;
-            top: 20px;
-            bottom: 20px;
-            width: 320px;
-            z-index: 1001;
-            transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
+        #themeSidebar { position: fixed; right: -350px; top: 20px; bottom: 20px; width: 320px; z-index: 1001; transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
         #themeSidebar.open { right: 20px; }
 
-        .sidebar-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.1);
-            backdrop-filter: blur(4px);
-            z-index: 1000;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
+        .sidebar-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.1); backdrop-filter: blur(4px); z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         .sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
 
-        .color-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px;
-            background: rgba(0,0,0,0.03);
-            border-radius: 12px;
-            margin-bottom: 8px;
-        }
+        .color-row { display: flex; align-items: center; justify-content: space-between; padding: 12px; background: rgba(0,0,0,0.03); border-radius: 12px; margin-bottom: 8px; }
 
-        .color-picker-input {
-            width: 40px;
-            height: 40px;
-            padding: 0;
-            border: none !important;
-            border-radius: 20px !important;
-            cursor: pointer;
-            overflow: hidden;
-        }
+        .color-picker-input { width: 40px; height: 40px; padding: 0; border: none !important; border-radius: 20px !important; cursor: pointer; overflow: hidden; }
         .color-picker-input::-webkit-color-swatch-wrapper { padding: 0; }
         .color-picker-input::-webkit-color-swatch { border: none; border-radius: 20px; }
 
-        .logo-shadow {
-            box-shadow: 8px 8px 16px rgba(0, 0, 0, 0.15);
-        }
-
+        .logo-shadow { box-shadow: 8px 8px 16px rgba(0, 0, 0, 0.15); }
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-        /* Template Gallery */
-        .template-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-        }
-        .template-card {
-            border-radius: 10px;
-            border: 2px solid #e2e8f0;
-            cursor: pointer;
-            transition: all 0.18s ease;
-            overflow: hidden;
-            background: white;
-        }
+        .template-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .template-card { border-radius: 10px; border: 2px solid #e2e8f0; cursor: pointer; transition: all 0.18s ease; overflow: hidden; background: white; }
         .template-card:hover { border-color: var(--primary-color); transform: translateY(-2px); }
-        .template-card.selected {
-            border-color: var(--primary-color);
-            background: rgba(51,65,85,0.04);
-        }
-        .template-card.selected .template-card-name { color: var(--primary-color); font-weight: 700; }
-        .template-thumb {
-            aspect-ratio: 16/9;
-            width: 100%;
-            object-fit: cover;
-            display: block;
-            background: #f1f5f9;
-        }
-        .template-thumb-placeholder {
-            aspect-ratio: 16/9;
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            color: #94a3b8;
-            font-size: 1.5rem;
-        }
-        .template-card-name {
-            padding: 6px 8px;
-            font-size: 10px;
-            font-weight: 600;
-            color: #64748b;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            text-align: center;
-            border-top: 1px solid #f1f5f9;
-            transition: color 0.15s;
-        }
-        .selected-badge {
-            position: absolute;
-            top: 5px; right: 5px;
-            background: var(--primary-color);
-            color: white;
-            border-radius: 50%;
-            width: 18px; height: 18px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 9px;
-        }
+        .template-card.selected { border-color: var(--primary-color); background: rgba(51,65,85,0.04); }
+        .template-thumb { aspect-ratio: 16/9; width: 100%; object-fit: cover; display: block; background: #f1f5f9; }
+        .template-thumb-placeholder { aspect-ratio: 16/9; width: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #94a3b8; font-size: 1.5rem; }
+        .template-card-name { padding: 6px 8px; font-size: 10px; font-weight: 600; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; border-top: 1px solid #f1f5f9; }
         #templateGallery { max-height: 420px; overflow-y: auto; }
     </style>
 </head>
 <body class="p-4 md:p-8">
 
-    <!-- Theme Settings Toggle -->
     <button onclick="toggleThemeSidebar()" class="fixed top-8 right-8 w-12 h-12 glass flex items-center justify-center text-slate-500 hover:bg-slate-50 transition-all z-[1002]">
         <i class="fas fa-palette text-xl"></i>
     </button>
 
-    <!-- Theme Sidebar -->
     <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleThemeSidebar()"></div>
     <div id="themeSidebar" class="glass p-6 overflow-y-auto">
         <div class="flex items-center justify-between mb-8">
             <h2 class="text-xl font-black text-slate-800 tracking-tight">Customizer</h2>
             <button onclick="toggleThemeSidebar()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
         </div>
-
         <div class="space-y-6">
             <section>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Core Branding</h3>
@@ -282,7 +125,6 @@
                     <input type="color" id="picker-primary" class="color-picker-input" value="#334155">
                 </div>
             </section>
-
             <section>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Background Gradient</h3>
                 <div class="color-row">
@@ -294,7 +136,6 @@
                     <input type="color" id="picker-bg-end" class="color-picker-input" value="#f8fafc">
                 </div>
             </section>
-
             <section>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Typography</h3>
                 <div class="color-row">
@@ -302,7 +143,6 @@
                     <input type="color" id="picker-text" class="color-picker-input" value="#1e293b">
                 </div>
             </section>
-
             <section>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Card Aesthetics</h3>
                 <div class="color-row">
@@ -322,14 +162,12 @@
                     <input type="color" id="picker-lyrics" class="color-picker-input" value="#1e293b">
                 </div>
             </section>
-
             <div class="pt-6 border-t border-slate-100 flex gap-2">
                 <button onclick="resetTheme()" class="flex-1 py-3 text-xs font-bold text-slate-400 hover:text-slate-600 uppercase transition-colors">Reset Defaults</button>
             </div>
         </div>
     </div>
 
-    <!-- Header -->
     <header class="max-w-[1600px] mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6 pr-16">
         <div class="flex items-center gap-4">
             <div class="relative">
@@ -341,7 +179,6 @@
                 <p id="appVersion" class="text-[10px] uppercase tracking-widest text-slate-400 font-mono mt-1"></p>
             </div>
         </div>
-        
         <div class="glass p-1 flex gap-2">
             <div id="modeGen" class="tab-btn active" onclick="setMode('gen')"><i class="fas fa-plus mr-2"></i>Create</div>
             <div id="modeTrans" class="tab-btn" onclick="setMode('trans')"><i class="fas fa-sync mr-2"></i>Transpose</div>
@@ -349,34 +186,26 @@
     </header>
 
     <main class="max-w-[1600px] mx-auto">
-        
-        <!-- GENERATE VIEW -->
         <div id="viewGen" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div class="lg:col-span-4 space-y-3">
-                <!-- Template Library Header -->
                 <div class="glass p-4 flex items-center justify-between gap-3">
                     <div class="min-w-0">
                         <h3 class="font-bold text-slate-700 text-sm">Templates</h3>
-                        <p id="dirName" class="text-slate-400 text-xs mt-0.5 truncate">Loading from current folder...</p>
+                        <p id="dirName" class="text-slate-400 text-xs mt-0.5 truncate">Loading templates...</p>
                     </div>
                 </div>
-
-                <!-- Template Gallery -->
                 <div class="glass p-4">
                     <div id="templateGallery">
                         <div class="text-center py-10 text-slate-400 italic text-xs">
                             <i class="fas fa-spinner fa-spin text-2xl mb-3 block opacity-30"></i>
-                            Loading templates...
+                            Loading...
                         </div>
                     </div>
                 </div>
-
-                <!-- Selected template info bar -->
                 <div id="selectedTemplateInfo" class="hidden glass p-3 flex items-center gap-3">
                     <i class="fas fa-check-circle text-green-500 text-sm"></i>
                     <div class="min-w-0">
                         <p class="text-xs font-bold text-slate-700 truncate" id="selectedTemplateName">—</p>
-                        <p class="text-[10px] text-slate-400">Selected template</p>
                     </div>
                     <button onclick="clearTemplate()" class="ml-auto text-slate-300 hover:text-slate-500 text-xs flex-shrink-0">
                         <i class="fas fa-times"></i>
@@ -387,24 +216,30 @@
                 <input type="text" id="songTitle" class="w-full p-4" placeholder="Song Title">
                 <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & Lyrics..."></textarea>
                 <input type="text" id="copyrightInfo" class="w-full p-4" placeholder="Copyright Info">
+                
+                <!-- Alignment Selection -->
+                <div class="flex items-center gap-4 p-4 glass bg-slate-50/50">
+                    <i class="fas fa-align-center text-slate-400"></i>
+                    <span class="text-sm font-bold text-slate-600">Lyrics Alignment:</span>
+                    <select id="alignmentSelect" class="flex-1 p-2 text-sm bg-white border-slate-200 rounded-lg">
+                        <option value="ctr">Center Aligned (Standard)</option>
+                        <option value="l">Left Aligned</option>
+                        <option value="smart">Smart (Chords Left, Lyrics Center)</option>
+                    </select>
+                </div>
+
                 <button id="generateBtn" class="w-full py-4 btn-primary rounded-xl font-bold"><i class="fas fa-magic mr-2"></i>Generate PowerPoint</button>
             </div>
         </div>
 
-        <!-- TRANSPOSE VIEW - Vertical Stack -->
         <div id="viewTrans" class="hidden flex flex-col gap-8 max-w-[1600px] mx-auto w-full">
-            
-            <!-- Controls (Top Panel) -->
             <div id="topPanel" class="w-full space-y-6">
                 <div class="glass p-8 grid grid-cols-1 md:grid-cols-3 gap-6 items-center text-center">
-                    <!-- Upload -->
                     <div class="border border-slate-200 rounded-xl p-6 text-center group cursor-pointer hover:bg-slate-50 bg-white" onclick="document.getElementById('transFileInput').click()">
                         <input type="file" id="transFileInput" class="hidden" accept=".pptx">
                         <i class="fas fa-upload text-xl mb-2 text-slate-300"></i>
                         <p id="transFileName" class="text-sm text-slate-400 font-medium truncate">Upload Song PPTX</p>
                     </div>
-
-                    <!-- Shift & Zoom -->
                     <div class="space-y-4">
                         <div class="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
                             <button onclick="changeSemitones(-1)" class="w-12 h-12 glass rounded-lg hover:bg-slate-50 text-xl font-bold">−</button>
@@ -412,130 +247,61 @@
                             <button onclick="changeSemitones(1)" class="w-12 h-12 glass rounded-lg hover:bg-slate-50 text-xl font-bold">+</button>
                         </div>
                         <div class="px-2">
-                            <label class="text-[10px] font-bold text-slate-400 uppercase flex justify-between mb-1">
-                                Preview Zoom <span id="zoomVal">100%</span>
-                            </label>
+                            <label class="text-[10px] font-bold text-slate-400 uppercase flex justify-between mb-1">Preview Zoom <span id="zoomVal">100%</span></label>
                             <input type="range" id="zoomSlider" min="50" max="250" value="100" class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-700" oninput="updateZoom(this.value)">
                         </div>
                     </div>
-
-                    <!-- Download -->
-                    <button id="transposeBtn" class="h-full py-4 btn-primary rounded-xl font-bold">
-                        <i class="fas fa-download mr-2"></i> Download Transposed
-                    </button>
+                    <button id="transposeBtn" class="h-full py-4 btn-primary rounded-xl font-bold"><i class="fas fa-download mr-2"></i> Download Transposed</button>
                 </div>
 
-                <!-- Font Customization Panel -->
                 <div class="glass p-6">
                     <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4"><i class="fas fa-font mr-2"></i>Font Customization</h3>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-                        <!-- Title -->
                         <div class="space-y-3">
-                            <div class="flex items-center gap-2 mb-3">
-                                <div class="w-2 h-2 rounded-full bg-slate-400"></div>
-                                <span class="text-xs font-black text-slate-600 uppercase tracking-widest">Title</span>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Family</label>
-                                <select id="fontTitle" class="w-full px-3 py-2 text-sm">
-                                    <option value="">— Keep Original —</option>
-                                    <option value="Arial">Arial</option>
-                                    <option value="Arial Narrow">Arial Narrow</option>
-                                    <option value="Calibri">Calibri</option>
-                                    <option value="Cambria">Cambria</option>
-                                    <option value="Century Gothic">Century Gothic</option>
-                                    <option value="Courier New">Courier New</option>
-                                    <option value="Georgia">Georgia</option>
-                                    <option value="Tahoma">Tahoma</option>
-                                    <option value="Times New Roman">Times New Roman</option>
-                                    <option value="Trebuchet MS">Trebuchet MS</option>
-                                    <option value="Verdana">Verdana</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Size (pt)</label>
-                                <input type="number" id="fontSizeTitle" class="w-full px-3 py-2 text-sm" placeholder="Keep original" min="6" max="120">
-                            </div>
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Title</span></div>
+                            <select id="fontTitle" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Arial Narrow">Arial Narrow</option>
+                                <option value="Calibri">Calibri</option>
+                                <option value="Verdana">Verdana</option>
+                            </select>
+                            <input type="number" id="fontSizeTitle" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
                         </div>
-
-                        <!-- Lyrics & Chords -->
                         <div class="space-y-3">
-                            <div class="flex items-center gap-2 mb-3">
-                                <div class="w-2 h-2 rounded-full bg-slate-400"></div>
-                                <span class="text-xs font-black text-slate-600 uppercase tracking-widest">Lyrics &amp; Chords</span>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Family</label>
-                                <select id="fontLyrics" class="w-full px-3 py-2 text-sm">
-                                    <option value="">— Keep Original —</option>
-                                    <option value="Arial">Arial</option>
-                                    <option value="Arial Narrow">Arial Narrow</option>
-                                    <option value="Calibri">Calibri</option>
-                                    <option value="Cambria">Cambria</option>
-                                    <option value="Century Gothic">Century Gothic</option>
-                                    <option value="Courier New">Courier New</option>
-                                    <option value="Georgia">Georgia</option>
-                                    <option value="Tahoma">Tahoma</option>
-                                    <option value="Times New Roman">Times New Roman</option>
-                                    <option value="Trebuchet MS">Trebuchet MS</option>
-                                    <option value="Verdana">Verdana</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Size (pt)</label>
-                                <input type="number" id="fontSizeLyrics" class="w-full px-3 py-2 text-sm" placeholder="Keep original" min="6" max="120">
-                            </div>
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Lyrics &amp; Chords</span></div>
+                            <select id="fontLyrics" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Arial Narrow">Arial Narrow</option>
+                                <option value="Courier New">Courier New</option>
+                                <option value="Verdana">Verdana</option>
+                            </select>
+                            <input type="number" id="fontSizeLyrics" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
                         </div>
-
-                        <!-- Copyright Info -->
                         <div class="space-y-3">
-                            <div class="flex items-center gap-2 mb-3">
-                                <div class="w-2 h-2 rounded-full bg-slate-400"></div>
-                                <span class="text-xs font-black text-slate-600 uppercase tracking-widest">Copyright Info</span>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Family</label>
-                                <select id="fontCopyright" class="w-full px-3 py-2 text-sm">
-                                    <option value="">— Keep Original —</option>
-                                    <option value="Arial">Arial</option>
-                                    <option value="Arial Narrow">Arial Narrow</option>
-                                    <option value="Calibri">Calibri</option>
-                                    <option value="Cambria">Cambria</option>
-                                    <option value="Century Gothic">Century Gothic</option>
-                                    <option value="Courier New">Courier New</option>
-                                    <option value="Georgia">Georgia</option>
-                                    <option value="Tahoma">Tahoma</option>
-                                    <option value="Times New Roman">Times New Roman</option>
-                                    <option value="Trebuchet MS">Trebuchet MS</option>
-                                    <option value="Verdana">Verdana</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Font Size (pt)</label>
-                                <input type="number" id="fontSizeCopyright" class="w-full px-3 py-2 text-sm" placeholder="Keep original" min="6" max="120">
-                            </div>
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Copyright</span></div>
+                            <select id="fontCopyright" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                            </select>
+                            <input type="number" id="fontSizeCopyright" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
                         </div>
-
                     </div>
                 </div>
             </div>
 
-            <!-- Preview Area (Bottom Panel) -->
             <div id="bottomPanel" class="w-full space-y-4">
                 <div class="flex justify-between items-center px-4">
                     <h3 class="text-lg font-black text-slate-700"><i class="fas fa-eye mr-2"></i>Live Transposition Preview</h3>
                     <span id="slideCount" class="text-xs text-slate-400 uppercase font-black">0 Slides Loaded</span>
                 </div>
-                <!-- 3 Column Grid -->
                 <div id="previewContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 p-6 glass">
-                    <div class="md:col-span-2 lg:col-span-3 text-center py-20 text-slate-400 italic font-medium">
-                        Upload a PowerPoint to see the 3-column preview here.
-                    </div>
+                    <div class="md:col-span-2 lg:col-span-3 text-center py-20 text-slate-400 italic font-medium">Upload a PowerPoint to see the preview here.</div>
                 </div>
             </div>
         </div>
-
     </main>
 
     <div id="loadingOverlay" class="loading-overlay">
@@ -545,13 +311,11 @@
 
     <script src="app.js"></script>
     <script>
-        // UI Bridge to LyricApp
         function toggleThemeSidebar() { window.LyricApp.toggleThemeSidebar(); }
         function resetTheme() { window.LyricApp.theme.reset(); }
         function setMode(mode) { window.LyricApp.setMode(mode); }
         function updateZoom(val) { window.LyricApp.updateZoom(val); }
         function changeSemitones(delta) { window.LyricApp.changeSemitones(delta); }
-        function pickTemplateDir() { window.LyricApp.pickTemplateDir(); }
         function clearTemplate() { window.LyricApp.clearTemplate(); }
 
         document.getElementById('transFileInput').addEventListener('change', async e => {
