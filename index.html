@@ -69,13 +69,14 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .preview-card {
-            background: var(--preview-card-bg); border-radius: 8px; padding: 24px; font-family: 'Outfit', sans-serif;
-            white-space: pre; overflow: auto; border: 1px solid #e2e8f0; font-size: 1.5rem; line-height: 1.4;
+            background: var(--preview-card-bg); border-radius: 8px; padding: 24px; 
+            font-family: 'Courier New', Courier, monospace; 
+            white-space: pre; overflow: auto; border: 1px solid #e2e8f0; font-size: 1.1rem; line-height: 1.2;
             aspect-ratio: 16 / 9; width: 100%; display: flex; flex-direction: column; position: relative; color: var(--preview-lyrics-color);
         }
 
         .chord { color: var(--preview-chord-color); font-weight: 900; }
-        .slide-content { transform-origin: top center; width: 100%; transition: transform 0.1s ease-out; }
+        .slide-content { transform-origin: top center; width: 100%; transition: transform 0.1s ease-out; display: block; text-align: center; }
         .preview-card-wrapper { width: 100%; overflow: visible; display: flex; justify-content: center; min-height: 0; }
 
         #themeSidebar { position: fixed; right: -350px; top: 20px; bottom: 20px; width: 320px; z-index: 1001; transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -217,14 +218,14 @@
                 <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & Lyrics..."></textarea>
                 <input type="text" id="copyrightInfo" class="w-full p-4" placeholder="Copyright Info">
                 
-                <!-- Alignment Selection -->
+                <!-- Updated Alignment Selection -->
                 <div class="flex items-center gap-4 p-4 glass bg-slate-50/50">
                     <i class="fas fa-align-center text-slate-400"></i>
                     <span class="text-sm font-bold text-slate-600">Lyrics Alignment:</span>
                     <select id="alignmentSelect" class="flex-1 p-2 text-sm bg-white border-slate-200 rounded-lg">
-                        <option value="ctr">Center Aligned (Standard)</option>
-                        <option value="l">Left Aligned</option>
-                        <option value="smart">Smart (Chords Left, Lyrics Center)</option>
+                        <option value="ctr">Center Aligned (Symmetric Chords)</option>
+                        <option value="l">Left Aligned (Standard Songbook)</option>
+                        <option value="smart">Smart (Centered Lyrics + Tags)</option>
                     </select>
                 </div>
 

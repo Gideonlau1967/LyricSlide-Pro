@@ -21,15 +21,15 @@ const App = {
         flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    originalSlides: [],   // Slide data for live preview
-    selectedTemplateFile: null, // Currently selected template File object
+    originalSlides: [],   
+    selectedTemplateFile: null, 
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
 
         this.theme.init();
-        this.loadDefaultTemplates(); // Auto-load from templates.json
+        this.loadDefaultTemplates(); 
         window.LyricApp = this;
 
         const versionEl = document.getElementById('appVersion');
@@ -216,8 +216,6 @@ const App = {
             return;
         }
 
-        const songTitle = this.songTitle || "";
-
         this.originalSlides.forEach((slideData, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
@@ -227,20 +225,22 @@ const App = {
 
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
-                slideData.forEach((para) => {
-                    const text = para.text;
-                    const isTitle = para.isTitle || (songTitle && text.trim().toLowerCase() === songTitle.toLowerCase());
-                    const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
-                    
-                    if (text.trim() && !isMetadata && !isTitle) {
-                        const lineDiv = document.createElement('div');
-                        lineDiv.style.textAlign = para.alignment;
-                        lineDiv.style.minHeight = '1.2em';
-                        const transposed = this.transposeLine(para.text, semitones);
-                        lineDiv.innerHTML = this.renderChordHTML(transposed);
-                        contentDiv.appendChild(lineDiv);
-                    }
-                });
+            
+            // Preview Pairing Logic
+            for (let i = 0; i < slideData.length; i++) {
+                const para = slideData[i];
+                const text = para.text;
+                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:| Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(text);
+                
+                if (text.trim() && !isMetadata && !para.isTitle) {
+                    const lineDiv = document.createElement('div');
+                    lineDiv.style.textAlign = 'center'; // Preview defaults to center
+                    lineDiv.style.minHeight = '1.2em';
+                    const transposed = this.transposeLine(text, semitones);
+                    lineDiv.innerHTML = this.renderChordHTML(transposed);
+                    contentDiv.appendChild(lineDiv);
+                }
+            }
             
             if (contentDiv.children.length > 0) {
                 card.appendChild(contentDiv);
@@ -249,8 +249,7 @@ const App = {
             }
         });
 
-        const zoomSlider = document.getElementById('zoomSlider');
-        if (typeof updateZoom === 'function') updateZoom(zoomSlider ? zoomSlider.value : 100);
+        this.updateZoom();
     },
 
     unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
@@ -433,6 +432,88 @@ const App = {
         }
     },
 
+    // --- PRO-ALIGNMENT REPLACEMENT LOGIC ---
+    lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
+        const phRegexStr = this.getPlaceholderRegexStr(placeholder);
+        const phRegex = new RegExp(phRegexStr, 'gi');
+
+        return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
+            if (phRegex.test(shapeXml)) {
+                const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
+                const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
+                let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
+                
+                const rawLines = (replacement || '').split(/\r?\n/);
+
+                if (placeholder !== '[Lyrics and Chords]') {
+                    const escapedText = rawLines.map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    return shapeXml.replace(phRegex, escapedText);
+                }
+
+                let injectedXml = `</a:t></a:r></a:p>`;
+                
+                for (let i = 0; i < rawLines.length; i++) {
+                    let line = rawLines[i];
+                    let nextLine = rawLines[i + 1];
+
+                    // Identify Musical Pair (Chords + Lyrics)
+                    if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
+                        
+                        let chordText = line;
+                        let lyricText = nextLine;
+                        let finalAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
+
+                        // Symmetric Balancing for Centered Modes
+                        if (finalAlign === 'ctr') {
+                            const overhangRight = Math.max(0, chordText.length - lyricText.length);
+                            const leftPadding = " ".repeat(overhangRight);
+                            chordText = leftPadding + chordText;
+                            lyricText = leftPadding + lyricText + " ".repeat(overhangRight);
+                        }
+
+                        injectedXml += this.makePptLine(chordText, style.replace('<a:rPr', '<a:rPr sz="1600"'), finalAlign);
+                        injectedXml += this.makePptLine(lyricText, style, finalAlign);
+                        i++; 
+                    } 
+                    else {
+                        if (line.trim() !== "") {
+                            let singleAlign = (userAlign === 'smart' || userAlign === 'ctr') ? 'ctr' : 'l';
+                            injectedXml += this.makePptLine(line.trim(), style, singleAlign);
+                        } else {
+                            injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        }
+                    }
+                }
+
+                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
+                let result = shapeXml.replace(phRegex, () => injectedXml);
+                result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
+                
+                if (!result.includes('Autofit')) {
+                    result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="92000" lnSpcReduction="10000"/></a:bodyPr>');
+                }
+                return result;
+            }
+            return shapeXml;
+        });
+    },
+
+    makePptLine(text, style, align) {
+        const escaped = this.escXml(text).replace(/ /g, '\u00A0');
+        return `<a:p>
+            <a:pPr algn="${align}"><a:buNone/></a:pPr>
+            <a:r>${style}<a:t xml:space="preserve">${escaped}</a:t></a:r>
+        </a:p>`;
+    },
+
+    isChordLine(text) {
+        if (!text || text.trim() === '') return false;
+        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
+        const matches = text.match(chordRegex) || [];
+        const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+        return matches.length > 0 && (matches.length >= words.length * 0.4 || words.length < 3);
+    },
+
     // --- TRANSPOSITION LOGIC ---
     async transpose() {
         const file = this.elements.transFileInput.files[0];
@@ -567,58 +648,6 @@ const App = {
         if (idx === -1) return note;
         let newIdx = (idx + semitones + 12) % 12;
         return (semitones >= 0 ? this.musical.keys : this.musical.flats)[newIdx];
-    },
-
-    lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
-        const phRegexStr = this.getPlaceholderRegexStr(placeholder);
-        const phRegex = new RegExp(phRegexStr, 'gi');
-        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
-
-        return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
-            if (phRegex.test(shapeXml)) {
-                const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
-                const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
-                let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
-                const rawLines = (replacement || '').split(/\r?\n/);
-
-                if (placeholder !== '[Lyrics and Chords]') {
-                    const escapedText = rawLines.map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                    return shapeXml.replace(phRegex, escapedText);
-                }
-
-                let injectedXml = `</a:t></a:r></a:p>`;
-                rawLines.forEach((line) => {
-                    const trimmed = line.trim();
-                    if (trimmed === '') {
-                        injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
-                        return;
-                    }
-                    const isTag = trimmed.startsWith('[') && trimmed.endsWith(']');
-                    const chords = line.match(chordRegex) || [];
-                    const words = trimmed.split(/\s+/).filter(w => w.length > 0);
-                    const isChordLine = chords.length > 0 && !isTag && (chords.length >= words.length * 0.3 || words.length < 3);
-
-                    let alignment = 'ctr';
-                    if (userAlign === 'l') alignment = 'l';
-                    else if (userAlign === 'smart') alignment = isChordLine ? 'l' : 'ctr';
-                    else alignment = 'ctr';
-
-                    let lineStyle = style;
-                    if (isChordLine) {
-                        lineStyle = lineStyle.includes('sz=') ? lineStyle.replace(/sz="\d+"/, 'sz="1800"') : lineStyle.replace('<a:rPr', '<a:rPr sz="1800"');
-                    }
-                    const escapedLine = this.escXml(line).replace(/ /g, '\u00A0');
-                    injectedXml += `<a:p><a:pPr algn="${alignment}"><a:buNone/></a:pPr><a:r>${lineStyle}<a:t xml:space="preserve">${escapedLine}</a:t></a:r></a:p>`;
-                });
-
-                injectedXml += `<a:p><a:pPr algn="ctr"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
-                let result = shapeXml.replace(phRegex, () => injectedXml);
-                result = result.replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '');
-                if (!result.includes('Autofit')) result = result.replace('</a:bodyPr>', '<a:normAutofit fontScale="85000" lnSpcReduction="15000"/></a:bodyPr>');
-                return result;
-            }
-            return shapeXml;
-        });
     },
 
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
