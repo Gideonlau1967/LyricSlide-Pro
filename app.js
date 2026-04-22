@@ -551,6 +551,35 @@ const App = {
         return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
+    // --- MISSING HELPER FUNCTIONS ---
+
+    // 1. Logic to determine if a line consists primarily of chords
+    isChordLine(line) {
+        if (!line || line.trim() === '') return false;
+        // Regex to match common chord patterns
+        const chordRegex = /\b([A-G][b#]?)(m|maj|dim|aug|sus|2|4|6|7|9|add|11|13)*(\/[A-G][b#]?)?\b/g;
+        const words = line.trim().split(/\s+/);
+        const chords = line.match(chordRegex) || [];
+        
+        // If more than 40% of the "words" are chords, or it's a very short line of chords
+        return chords.length >= words.length * 0.4 || (chords.length > 0 && words.length <= 2);
+    },
+
+    // 2. Logic to generate the PowerPoint XML paragraph structure
+    makePptLine(text, style, align) {
+        const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); // Use non-breaking spaces for alignment
+        return `
+            <a:p>
+                <a:pPr algn="${align}">
+                    <a:buNone/>
+                </a:pPr>
+                <a:r>
+                    ${style}
+                    <a:t xml:space="preserve">${escapedText}</a:t>
+                </a:r>
+            </a:p>`;
+    },
+
     // --- TRANSPOSITION LOGIC ---
     async transpose() {
         const file = this.elements.transFileInput.files[0];
