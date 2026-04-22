@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.3",
+    version: "2.3 Fixed Presenter Notes",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -400,14 +400,16 @@ const App = {
             
             const newZip = zip;
             const generated = [];
-
+            
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
                 let slideXml = templateXml;
+            
+                // 1. Generate Slide Content
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Title]', title);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
-
+            
                 const name = `song_gen_${i + 1}.xml`;
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
@@ -416,23 +418,40 @@ const App = {
                 if (templateNotesXml) {
                     const notesName = `notes_gen_${i + 1}.xml`;
                     notesPath = `ppt/notesSlides/${notesName}`;
-                    const formattedNotes = this.escXml(sectionText).replace(/\r?\n/g, '</a:t></a:r><a:br/><a:r><a:t xml:space="preserve">');
-                    let newNotesXml = templateNotesXml.replace(/\[Presenter Note\]/g, formattedNotes);
+                
+                    // --- START OF MONOSPACE FIX ---
+                    // Define style: Courier New, 12pt (sz="1200")
+                    const monoStyle = '<a:rPr sz="1200" lang="en-US"><a:latin typeface="Courier New"/><a:ea typeface="Courier New"/><a:cs typeface="Courier New"/></a:rPr>';
+                    
+                    // Escape XML and swap regular spaces for Non-Breaking Spaces (\u00A0)
+                    const safeText = this.escXml(sectionText).replace(/ /g, '\u00A0');
+                
+                    // Inject the monoStyle into every new line break
+                    const formattedNotes = safeText.replace(/\r?\n/g, `</a:t></a:r><a:br/><a:r>${monoStyle}<a:t xml:space="preserve">`);
+                
+                    // Construct final Notes XML
+                    let newNotesXml = templateNotesXml.replace(/\[Presenter Note\]/g, `${monoStyle}<a:t xml:space="preserve">${formattedNotes}`);
                     newZip.file(notesPath, newNotesXml);
-
+            
+                    // --- RELATIONSHIP LOGIC ---
+                    // Link Slide to Notes
                     let newSlideRels = templateRelsXml.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`);
                     newZip.file(`ppt/slides/_rels/${name}.rels`, newSlideRels);
-
+            
+                    // Link Notes back to Slide
                     const notesRelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
                     <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
                         <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/>
                     </Relationships>`;
                     newZip.file(`ppt/notesSlides/_rels/${notesName}.rels`, notesRelXml);
+                    // --- END OF MONOSPACE FIX ---
+                    
                 } else {
                     if (templateRelsXml) newZip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml);
                 }
+            
                 generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name, path, notesPath });
-            }
+            } 
 
             this.syncPresentationRegistry(newZip, presXml, presRelsXml, generated);
             this.showLoading('Downloading...');
