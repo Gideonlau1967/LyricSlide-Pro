@@ -416,18 +416,29 @@ const App = {
                 if (templateNotesXml) {
                     const notesName = `notes_gen_${i + 1}.xml`;
                     notesPath = `ppt/notesSlides/${notesName}`;
-                    const formattedNotes = this.escXml(sectionText).replace(/\r?\n/g, '</a:t></a:r><a:br/><a:r><a:t xml:space="preserve">');
-                    let newNotesXml = templateNotesXml.replace(/\[Presenter Note\]/g, formattedNotes);
+                
+                    // Define Courier New style (sz="1100" is 11pt)
+                    const courierStyle = '<a:rPr lang="en-US" sz="1100"><a:latin typeface="Courier New"/><a:cs typeface="Courier New"/></a:rPr>';
+                
+                    // Split text by line and wrap each in Courier New styling
+                    const formattedNotes = sectionText.split(/\r?\n/).map(line => {
+                        return `<a:r>${courierStyle}<a:t xml:space="preserve">${this.escXml(line)}</a:t></a:r>`;
+                    }).join('<a:br/>');
+                
+                    // Replace the existing run that contains the [Presenter Note] placeholder
+                    let newNotesXml = templateNotesXml.replace(/<a:r>[\s\S]*?\[Presenter Note\][\s\S]*?<\/a:r>/g, formattedNotes);
                     newZip.file(notesPath, newNotesXml);
-
+                
+                    // ... rest of your existing logic for slide rels ...
                     let newSlideRels = templateRelsXml.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`);
                     newZip.file(`ppt/slides/_rels/${name}.rels`, newSlideRels);
-
+                
                     const notesRelXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
                     <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
                         <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/>
                     </Relationships>`;
                     newZip.file(`ppt/notesSlides/_rels/${notesName}.rels`, notesRelXml);
+                }
                 } else {
                     if (templateRelsXml) newZip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml);
                 }
@@ -636,11 +647,22 @@ const App = {
             }
             if (semitones !== 0) {
                 const notesFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
+                
+                // Courier New style string
+                const courierStyle = '<a:rPr lang="en-US" sz="1100"><a:latin typeface="Courier New"/><a:cs typeface="Courier New"/></a:rPr>';
+            
                 for (const path of notesFiles) {
                     let notesContent = await zip.file(path).async('string');
-                    notesContent = notesContent.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => `<a:t>${this.transposeLine(text, semitones)}</a:t>`);
+                    
+                    // Match existing text runs, transpose the text, and force Courier New
+                    notesContent = notesContent.replace(/<a:r>([\s\S]*?)<a:t>(.*?)<\/a:t><\/a:r>/g, (_, existingPr, text) => {
+                        const transposed = this.transposeLine(this.unescXml(text), semitones);
+                        return `<a:r>${courierStyle}<a:t xml:space="preserve">${this.escXml(transposed)}</a:t></a:r>`;
+                    });
+                    
                     zip.file(path, notesContent);
                 }
+            }
             }
             this.showLoading('Downloading...');
             const finalBlob = await zip.generateAsync({ type: 'blob' });
