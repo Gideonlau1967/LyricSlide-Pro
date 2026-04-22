@@ -68,16 +68,16 @@
         .spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* PREVIEW STYLING - Mimicking Monospaced PPT Output */
+        /* PREVIEW STYLING - Mimicking PowerPoint rendering */
         .preview-card {
             background: var(--preview-card-bg); border-radius: 8px; padding: 24px; 
             font-family: 'Consolas', 'Courier New', monospace; 
-            white-space: pre; overflow: auto; border: 1px solid #e2e8f0; font-size: 1.1rem; line-height: 1.3;
+            white-space: pre; overflow: auto; border: 1px solid #e2e8f0; font-size: 1.1rem; line-height: 1.4;
             aspect-ratio: 16 / 9; width: 100%; display: flex; flex-direction: column; position: relative; color: var(--preview-lyrics-color);
         }
 
-        /* Chords are smaller in the preview to match the 18pt logic */
-        .chord { color: var(--preview-chord-color); font-weight: 900; font-size: 0.8em; }
+        /* Chords are visually smaller in preview to mimic the 18pt logic */
+        .chord { color: var(--preview-chord-color); font-weight: 900; font-size: 0.75em; vertical-align: baseline; }
         
         .slide-content { transform-origin: top center; width: 100%; transition: transform 0.1s ease-out; display: block; text-align: center; }
         .preview-card-wrapper { width: 100%; overflow: visible; display: flex; justify-content: center; min-height: 0; }
@@ -111,6 +111,7 @@
 </head>
 <body class="p-4 md:p-8">
 
+    <!-- Theme Customization Toggle -->
     <button onclick="toggleThemeSidebar()" class="fixed top-8 right-8 w-12 h-12 glass flex items-center justify-center text-slate-500 hover:bg-slate-50 transition-all z-[1002]">
         <i class="fas fa-palette text-xl"></i>
     </button>
@@ -122,9 +123,231 @@
             <button onclick="toggleThemeSidebar()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
         </div>
         <div class="space-y-6">
-            <!-- Theme picker sections remain same -->
             <section>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Core Branding</h3>
                 <div class="color-row">
                     <span class="text-sm font-semibold">Primary Accent</span>
-                    <input type="color" id="picker-primary" cl
+                    <input type="color" id="picker-primary" class="color-picker-input" value="#334155">
+                </div>
+            </section>
+            <section>
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Background Gradient</h3>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Start Color</span>
+                    <input type="color" id="picker-bg-start" class="color-picker-input" value="#f8fafc">
+                </div>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">End Color</span>
+                    <input type="color" id="picker-bg-end" class="color-picker-input" value="#f8fafc">
+                </div>
+            </section>
+            <section>
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Typography</h3>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Main Text</span>
+                    <input type="color" id="picker-text" class="color-picker-input" value="#1e293b">
+                </div>
+            </section>
+            <section>
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Card Aesthetics</h3>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Card Accent</span>
+                    <input type="color" id="picker-card-accent" class="color-picker-input" value="#e2e8f0">
+                </div>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Card Body</span>
+                    <input type="color" id="picker-preview-bg" class="color-picker-input" value="#ffffff">
+                </div>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Chord Color</span>
+                    <input type="color" id="picker-chord" class="color-picker-input" value="#334155">
+                </div>
+                <div class="color-row">
+                    <span class="text-sm font-semibold">Lyrics Color</span>
+                    <input type="color" id="picker-lyrics" class="color-picker-input" value="#1e293b">
+                </div>
+            </section>
+            <div class="pt-6 border-t border-slate-100 flex gap-2">
+                <button onclick="resetTheme()" class="flex-1 py-3 text-xs font-bold text-slate-400 hover:text-slate-600 uppercase transition-colors">Reset Defaults</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header Section -->
+    <header class="max-w-[1600px] mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6 pr-16">
+        <div class="flex items-center gap-4">
+            <div class="relative">
+                <img src="TOP Logo.png" class="relative w-24 h-24 rounded-full bg-white border border-slate-200 object-contain logo-shadow" alt="TOP Logo">
+            </div>
+            <div>
+                <h1 class="text-3xl font-black tracking-tight" style="color: var(--text-main)">LyricSlide Pro</h1>
+                <p class="text-sm font-medium" style="color: var(--text-muted)">Professional Song Deck Utility</p>
+                <p id="appVersion" class="text-[10px] uppercase tracking-widest text-slate-400 font-mono mt-1"></p>
+            </div>
+        </div>
+        <div class="glass p-1 flex gap-2">
+            <div id="modeGen" class="tab-btn active" onclick="setMode('gen')"><i class="fas fa-plus mr-2"></i>Create</div>
+            <div id="modeTrans" class="tab-btn" onclick="setMode('trans')"><i class="fas fa-sync mr-2"></i>Transpose</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-[1600px] mx-auto">
+        
+        <!-- View: Generate Song -->
+        <div id="viewGen" class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Left Column: Template Selection -->
+            <div class="lg:col-span-4 space-y-3">
+                <div class="glass p-4 flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <h3 class="font-bold text-slate-700 text-sm">Templates</h3>
+                        <p id="dirName" class="text-slate-400 text-xs mt-0.5 truncate">Loading templates...</p>
+                    </div>
+                </div>
+                <div class="glass p-4">
+                    <div id="templateGallery">
+                        <div class="text-center py-10 text-slate-400 italic text-xs">
+                            <i class="fas fa-spinner fa-spin text-2xl mb-3 block opacity-30"></i>
+                            Loading...
+                        </div>
+                    </div>
+                </div>
+                <div id="selectedTemplateInfo" class="hidden glass p-3 flex items-center gap-3">
+                    <i class="fas fa-check-circle text-green-500 text-sm"></i>
+                    <div class="min-w-0">
+                        <p class="text-xs font-bold text-slate-700 truncate" id="selectedTemplateName">—</p>
+                    </div>
+                    <button onclick="clearTemplate()" class="ml-auto text-slate-300 hover:text-slate-500 text-xs flex-shrink-0">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Column: Input Data -->
+            <div class="lg:col-span-8 glass p-8 space-y-6">
+                <input type="text" id="songTitle" class="w-full p-4" placeholder="Song Title">
+                <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & Lyrics (use [Section] tags to split slides)..."></textarea>
+                <input type="text" id="copyrightInfo" class="w-full p-4" placeholder="Copyright Info">
+                
+                <!-- Alignment Selection (Removed Smart) -->
+                <div class="flex items-center gap-4 p-4 glass bg-slate-50/50">
+                    <i class="fas fa-align-center text-slate-400"></i>
+                    <span class="text-sm font-bold text-slate-600">Slide Alignment:</span>
+                    <select id="alignmentSelect" class="flex-1 p-2 text-sm bg-white border-slate-200 rounded-lg">
+                        <option value="ctr">Center Aligned (Pixel-Perfect Ghosting)</option>
+                        <option value="l">Left Aligned (Standard Songbook)</option>
+                    </select>
+                </div>
+
+                <button id="generateBtn" class="w-full py-4 btn-primary rounded-xl font-bold transition-all active:scale-[0.98]">
+                    <i class="fas fa-magic mr-2"></i>Generate PowerPoint
+                </button>
+            </div>
+        </div>
+
+        <!-- View: Transpose Existing PPTX -->
+        <div id="viewTrans" class="hidden flex flex-col gap-8 max-w-[1600px] mx-auto w-full">
+            <div id="topPanel" class="w-full space-y-6">
+                <div class="glass p-8 grid grid-cols-1 md:grid-cols-3 gap-6 items-center text-center">
+                    <!-- File Input -->
+                    <div class="border border-slate-200 rounded-xl p-6 text-center group cursor-pointer hover:bg-slate-50 bg-white" onclick="document.getElementById('transFileInput').click()">
+                        <input type="file" id="transFileInput" class="hidden" accept=".pptx">
+                        <i class="fas fa-upload text-xl mb-2 text-slate-300"></i>
+                        <p id="transFileName" class="text-sm text-slate-400 font-medium truncate">Upload Song PPTX</p>
+                    </div>
+
+                    <!-- Transpose Controls -->
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
+                            <button onclick="changeSemitones(-1)" class="w-12 h-12 glass rounded-lg hover:bg-slate-50 text-xl font-bold">−</button>
+                            <span id="semitoneDisplay" class="text-3xl font-black text-slate-700">0</span>
+                            <button onclick="changeSemitones(1)" class="w-12 h-12 glass rounded-lg hover:bg-slate-50 text-xl font-bold">+</button>
+                        </div>
+                        <div class="px-2">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase flex justify-between mb-1">Preview Zoom <span id="zoomVal">100%</span></label>
+                            <input type="range" id="zoomSlider" min="50" max="250" value="100" class="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-700" oninput="updateZoom(this.value)">
+                        </div>
+                    </div>
+
+                    <button id="transposeBtn" class="h-full py-4 btn-primary rounded-xl font-bold"><i class="fas fa-download mr-2"></i> Download Transposed</button>
+                </div>
+
+                <!-- Global Font/Size Overrides -->
+                <div class="glass p-6">
+                    <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4"><i class="fas fa-font mr-2"></i>Batch Font Override</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Title</span></div>
+                            <select id="fontTitle" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Arial Narrow">Arial Narrow</option>
+                                <option value="Calibri">Calibri</option>
+                                <option value="Verdana">Verdana</option>
+                            </select>
+                            <input type="number" id="fontSizeTitle" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Lyrics &amp; Chords</span></div>
+                            <select id="fontLyrics" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Consolas">Consolas (Recommended)</option>
+                                <option value="Courier New">Courier New</option>
+                                <option value="Lucida Console">Lucida Console</option>
+                                <option value="Arial">Arial</option>
+                            </select>
+                            <input type="number" id="fontSizeLyrics" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2 mb-3"><div class="w-2 h-2 rounded-full bg-slate-400"></div><span class="text-xs font-black text-slate-600 uppercase tracking-widest">Copyright</span></div>
+                            <select id="fontCopyright" class="w-full px-3 py-2 text-sm">
+                                <option value="">— Keep Original —</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                            </select>
+                            <input type="number" id="fontSizeCopyright" class="w-full px-3 py-2 text-sm" placeholder="Size (pt)" min="6" max="120">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preview Area -->
+            <div id="bottomPanel" class="w-full space-y-4">
+                <div class="flex justify-between items-center px-4">
+                    <h3 class="text-lg font-black text-slate-700"><i class="fas fa-eye mr-2"></i>Live Transposition Preview</h3>
+                    <span id="slideCount" class="text-xs text-slate-400 uppercase font-black">0 Slides Loaded</span>
+                </div>
+                <div id="previewContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 p-6 glass">
+                    <div class="md:col-span-2 lg:col-span-3 text-center py-20 text-slate-400 italic font-medium">Upload a PowerPoint to see the preview here.</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Universal Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner mb-4"></div>
+        <p id="loadingText" class="text-sm font-medium">Processing...</p>
+    </div>
+
+    <!-- Application Script -->
+    <script src="app.js"></script>
+    <script>
+        // UI Interaction Handlers
+        function toggleThemeSidebar() { window.LyricApp.toggleThemeSidebar(); }
+        function resetTheme() { window.LyricApp.theme.reset(); }
+        function setMode(mode) { window.LyricApp.setMode(mode); }
+        function updateZoom(val) { window.LyricApp.updateZoom(val); }
+        function changeSemitones(delta) { window.LyricApp.changeSemitones(delta); }
+        function clearTemplate() { window.LyricApp.clearTemplate(); }
+
+        // Event listener for Transpose File Upload
+        document.getElementById('transFileInput').addEventListener('change', async e => {
+            if(e.target.files[0]) {
+                document.getElementById('transFileName').textContent = e.target.files[0].name;
+                await window.LyricApp.loadForPreview(e.target.files[0]);
+            }
+        });
+    </script>
+</body>
+</html>
