@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.2 Ghost Text",
+    version: "2.2.3",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -154,8 +154,10 @@ const App = {
 
     async loadForPreview(file) {
         try {
-            this.showLoading('Extracting slide text...');
+            this.showLoading('Extracting notes text...');
             const zip = await JSZip.loadAsync(file);
+            
+            // 1. Get and sort all slide files
             const slideFiles = Object.keys(zip.files)
                 .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
                 .sort((a, b) => {
@@ -165,23 +167,27 @@ const App = {
                 });
 
             this.originalSlides = [];
-            let globalSongTitle = "";
 
             for (const path of slideFiles) {
-                const xml = await zip.file(path).async('string');
-                const slideData = [];
-                const spRegex = /<p:sp>([\s\S]*?)<\/p:sp>/g;
-                let spMatch;
+                const slideFileName = path.split('/').pop(); // e.g. "slide1.xml"
+                const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
                 
-                while ((spMatch = spRegex.exec(xml)) !== null) {
-                    const spContent = spMatch[1];
-                    const phMatch = spContent.match(/<p:ph[^>]*type="(?:title|ctrTitle|ftr|dt|sldNum)"/);
-                    const isExcludedShape = !!phMatch;
+                // 2. Find the relationship file to locate the Notes Slide
+                const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
+                const notesPath = this.getNotesRelPath(relsXml);
+                
+                let slideData = [];
+
+                if (notesPath && zip.file(notesPath)) {
+                    // 3. Extract text from the Notes XML
+                    const notesXml = await zip.file(notesPath).async('string');
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
                     let pMatch;
                     
-                    while ((pMatch = pRegex.exec(spContent)) !== null) {
+                    while ((pMatch = pRegex.exec(notesXml)) !== null) {
                         const pContent = pMatch[1];
+                        
+                        // Handle text tags and line breaks
                         const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
                         let pText = '';
                         let match;
@@ -189,26 +195,29 @@ const App = {
                             if (match[0].startsWith('<a:br')) pText += '\n';
                             else pText += this.unescXml(match[2] || '');
                         }
-                        let alignment = 'left';
-                        const algMatch = pContent.match(/algn="([^"]+)"/);
-                        if (algMatch && algMatch[1] === 'ctr') alignment = 'center';
 
-                        const isPlaceholderTitle = phMatch && (phMatch[0].includes('title') || phMatch[0].includes('ctrTitle'));
-                        if (isPlaceholderTitle && pText.trim() && !globalSongTitle) {
-                            globalSongTitle = pText.trim();
+                        if (pText.trim()) {
+                            // Logic expects paragraphs to be pushed into slideData
+                            slideData.push({ 
+                                text: pText, 
+                                alignment: 'left', 
+                                isTitle: false 
+                            });
                         }
-                        slideData.push({ text: pText, alignment, isTitle: isExcludedShape });
                     }
+                } else {
+                    slideData.push({ text: "[No Notes Found]", alignment: 'left', isTitle: false });
                 }
+
                 this.originalSlides.push(slideData);
             }
-            this.songTitle = globalSongTitle;
-            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides Loaded`;
-            this.updatePreview(0);
+
+            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides (Notes Mode)`;
+            this.updatePreview(0); // This triggers the visual UI update
             this.hideLoading();
         } catch (err) {
             console.error(err);
-            alert("Error loading preview: " + err.message);
+            alert("Error loading preview from notes: " + err.message);
             this.hideLoading();
         }
     },
