@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.8",
+    version: "2.2.8a",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -513,8 +513,8 @@ const App = {
             const matches = [...line.matchAll(this.chordRegex)];
             for (const m of matches) {
                 const o = m[0], r = m[1], q = m[2] || '', b = m[3] || '';
-                const nr = this.Note(r, semitones);
-                const nb = b ? '/' + this.Note(b.substring(1), semitones) : '';
+                const nr = this.shiftNote(r, semitones); 
+                const nb = b ? '/' + this.shiftNote(b.substring(1), semitones) : '';
                 const nf = nr + q + nb;
                 const p = m.index + offset, d = nf.length - o.length;
                 let pre = result.substring(0, p), suf = result.substring(p + o.length);
