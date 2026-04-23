@@ -24,8 +24,9 @@ const App = {
     originalSlides: [],   
     selectedTemplateFile: null, 
 
-    // IMPROVED REGEX: Matches chords strictly
-    chordRegex: /\b([A-G][b#]?)(m|maj|dim|aug|sus|add|2|4|5|6|7|9|11|13|[\(\)])*(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    
+    // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
+    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
