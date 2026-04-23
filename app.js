@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.7",
+    version: "2.2.8",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
