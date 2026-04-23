@@ -18,7 +18,9 @@ const App = {
 
     musical: {
         keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
+        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
+        // This follows your fixed convention:
+        preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
     originalSlides: [],   
@@ -511,8 +513,8 @@ const App = {
             const matches = [...line.matchAll(this.chordRegex)];
             for (const m of matches) {
                 const o = m[0], r = m[1], q = m[2] || '', b = m[3] || '';
-                const nr = this.shiftNote(r, semitones);
-                const nb = b ? '/' + this.shiftNote(b.substring(1), semitones) : '';
+                const nr = this.Note(r, semitones);
+                const nb = b ? '/' + this.Note(b.substring(1), semitones) : '';
                 const nf = nr + q + nb;
                 const p = m.index + offset, d = nf.length - o.length;
                 let pre = result.substring(0, p), suf = result.substring(p + o.length);
@@ -526,12 +528,19 @@ const App = {
     },
 
     shiftNote(note, semitones) {
+        // 1. Find the numeric index of the current note (0-11)
         let idx = this.musical.keys.indexOf(note);
         if (idx === -1) idx = this.musical.flats.indexOf(note);
+        
+        // If note not found (shouldn't happen with chordRegex), return as is
         if (idx === -1) return note;
+
+        // 2. Calculate the new index based on semitones
         let newIdx = (idx + semitones) % 12;
         if (newIdx < 0) newIdx += 12;
-        return (semitones >= 0 ? this.musical.keys : this.musical.flats)[newIdx];
+
+        // 3. Always return the note from your fixed convention list
+        return this.musical.preferred[newIdx];
     },
 
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
