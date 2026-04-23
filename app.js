@@ -407,7 +407,8 @@ const App = {
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
-                            injectedXml += this.AlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
+                            // Ensure this says 'makeGhostAlignmentLine'
+                            injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
                             injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
                         } else {
                             injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
@@ -444,7 +445,6 @@ const App = {
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
         const chordStyle = this.getChordStyle(lyricStyle);
-        // Create invisible ghost style
         let ghostStyle = lyricStyle;
         if (ghostStyle.endsWith('/>')) ghostStyle = ghostStyle.replace('/>', '></a:rPr>');
         ghostStyle = ghostStyle.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '').replace('<a:rPr', '<a:rPr><a:noFill/>');
@@ -458,8 +458,16 @@ const App = {
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(chordChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
-        // Spacing set to 80% (80000)
+        // Correct name + 80% spacing
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
+    },
+
+    makePptLine(text, style, align) {
+        const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
+        let finalStyle = style;
+        if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
+        // Correct name + 80% spacing
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
     isChordLine(line) {
@@ -469,13 +477,6 @@ const App = {
         return chords.length >= words.length * 0.6 || (chords.length > 0 && words.length <= 2);
     },
 
-    makePptLine(text, style, align) {
-        const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
-        let finalStyle = style;
-        if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
-        // Spacing set to 80% (80000)
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
-    },
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
