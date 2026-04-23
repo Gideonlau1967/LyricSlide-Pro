@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.6 Chords-lyrics spacing 80%",
+    version: "2.2.6a Chords-lyrics spacing 80%",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
