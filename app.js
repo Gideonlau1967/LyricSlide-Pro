@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.5",
+    version: "2.2.6 Chords-lyrics spacing 80%",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -407,7 +407,7 @@ const App = {
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
-                            injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
+                            injectedXml += this.AlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
                             injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
                         } else {
                             injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
@@ -458,7 +458,8 @@ const App = {
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(chordChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
-        return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr>${runsXml}</a:p>`;
+        // Spacing set to 80% (80000)
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
     isChordLine(line) {
@@ -472,9 +473,9 @@ const App = {
         const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
-        return `<a:p><a:pPr algn="${align}"><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
+        // Spacing set to 80% (80000)
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
-
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
