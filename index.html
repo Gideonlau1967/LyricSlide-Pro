@@ -123,14 +123,14 @@
             <button onclick="toggleThemeSidebar()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
         </div>
         <div class="space-y-6">
-            <section>
+            <>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Core Branding</h3>
                 <div class="color-row">
                     <span class="text-sm font-semibold">Primary Accent</span>
                     <input type="color" id="picker-primary" class="color-picker-input" value="#334155">
                 </div>
-            </section>
-            <section>
+            </>
+            <>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Background Gradient</h3>
                 <div class="color-row">
                     <span class="text-sm font-semibold">Start Color</span>
@@ -140,8 +140,8 @@
                     <span class="text-sm font-semibold">End Color</span>
                     <input type="color" id="picker-bg-end" class="color-picker-input" value="#f8fafc">
                 </div>
-            </section>
-            <section>
+            </>
+            <>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Typography</h3>
                 <div class="color-row">
                     <span class="text-sm font-semibold">Main Text</span>
@@ -226,7 +226,7 @@
             <!-- Right Column: Input Data -->
             <div class="lg:col-span-8 glass p-8 space-y-6">
                 <input type="text" id="songTitle" class="w-full p-4" placeholder="Song Title">
-                <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Chords & Lyrics (use [Section] tags to split slides)..."></textarea>
+                <textarea id="lyricsInput" rows="10" class="w-full p-4 font-mono text-sm" placeholder="Use [Section] tags (e.g [Verse]) to split slides."></textarea>
                 <input type="text" id="copyrightInfo" class="w-full p-4" placeholder="Copyright Info">
                 
                 <!-- Alignment Selection (Removed Smart) -->
