@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.3.1",
+    version: "2.2.8a",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -505,101 +505,41 @@ const App = {
     },
 
     transposeParagraphs(xml, semitones) {
-        // Detect if this is a Notes Slide (Notes don't have the <p:sld> tag)
-        const isNotes = xml.includes('<p:notes');
-    
-        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (pMatch, pContent) => {
+        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
+            let pText = '';
+            const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+            let match;
+            while ((match = tagRegex.exec(pXml)) !== null) {
+                if (match[0].startsWith('<a:br')) pText += '\n';
+                else pText += this.unescXml(match[2] || '');
+            }
+            if (!pText.trim()) return matchFull;
             
-            // --- CASE 1: PRESENTER NOTES (Use the original logic that worked) ---
-            if (isNotes) {
-                let pText = '';
-                const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-                let match;
-                while ((match = tagRegex.exec(pContent)) !== null) {
-                    if (match[0].startsWith('<a:br')) pText += '\n';
-                    else pText += this.unescXml(match[2] || '');
-                }
-    
-                if (!this.isChordLine(pText)) return pMatch;
-    
-                const transposedText = this.transposeTextContent(pText, semitones);
+            const transposedText = this.transposeLine(pText, semitones);
+            if (transposedText !== pText) {
+                const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+                let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
+                const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
+                const pPr = pPrMatch ? pPrMatch[0] : '';
                 
-                // Rebuild the notes paragraph simply
-                const rPrMatch = pContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                const style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US" sz="1200"/>';
+                const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
+                const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
+                
                 const lines = transposedText.split('\n');
                 let newRuns = '';
                 for (let i = 0; i < lines.length; i++) {
-                    const escaped = this.escXml(lines[i]);
-                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escaped}</a:t></a:r>`;
-                    if (i < lines.length - 1) newRuns += `<a:br/>`;
+                    const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
+                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
+                    if (i < lines.length - 1) {
+                        newRuns += `<a:br/>`;
+                    }
                 }
-                
-                const pTagMatch = pMatch.match(/^<a:p[^>]*>/);
-                return (pTagMatch ? pTagMatch[0] : '<a:p>') + newRuns + '</a:p>';
+                return `${pTagOpen}${pPr}${newRuns}</a:p>`;
             }
-    
-            // --- CASE 2: SLIDES (Use the 18pt font size logic) ---
-            const newInner = pContent.replace(/<a:r>([\s\S]*?)<\/a:r>/g, (rMatch, rInner) => {
-                const tMatch = rInner.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/);
-                if (!tMatch) return rMatch;
-    
-                const rPrMatch = rInner.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                const rPr = rPrMatch ? rPrMatch[0] : '';
-                const text = this.unescXml(tMatch[1]);
-    
-                // For slides, we strictly check for 18pt (sz="1800")
-                if (rPr.includes('sz="1800"')) {
-                    const transposedText = this.transposeTextContent(text, semitones);
-                    const escaped = this.escXml(transposedText).replace(/ /g, '\u00A0');
-                    return rInner.replace(/(<a:t[^>]*>)([\s\S]*?)(<\/a:t>)/, `$1${escaped}$3`);
-                }
-                return rMatch;
-            });
-    
-            return pMatch.replace(pContent, newInner);
+            return matchFull;
         });
     },
 
-    transposeTextContent(text, semitones) {
-        if (semitones === 0) return text;
-        let result = text;
-        let offset = 0;
-        
-        this.chordRegex.lastIndex = 0;
-        const matches = [...text.matchAll(this.chordRegex)];
-        
-        for (const m of matches) {
-            const originalChord = m[0];
-            const root = m[1];
-            const suffix = m[2] || '';
-            const bass = m[3] || '';
-
-            const newRoot = this.shiftNote(root, semitones); 
-            const newBass = bass ? '/' + this.shiftNote(bass.substring(1), semitones) : '';
-            const newChord = newRoot + suffix + newBass;
-
-            const position = m.index + offset;
-            const diff = newChord.length - originalChord.length;
-
-            let pre = result.substring(0, position);
-            let suf = result.substring(position + originalChord.length);
-
-            if (diff > 0 && (suf.startsWith(' ') || suf.startsWith('\u00A0'))) {
-                suf = suf.substring(1); 
-                offset--;
-            } else if (diff < 0) {
-                suf = '\u00A0'.repeat(Math.abs(diff)) + suf; 
-                offset += Math.abs(diff);
-            }
-
-            result = pre + newChord + suf;
-            offset += diff;
-        }
-        return result;
-    },
-
-    
     transposeLine(text, semitones) {
         if (semitones === 0) return text;
         const lines = text.split('\n');
