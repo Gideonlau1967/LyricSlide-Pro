@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.8a",
+    version: "2.2.9",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -17,10 +17,10 @@ const App = {
     },
 
     musical: {
-        keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
-        // This follows your fixed convention:
-        preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+    keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+    // Added ♭ to the flats array
+    flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B', 'D♭', 'E♭', 'G♭', 'A♭', 'B♭'],
+    preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
     originalSlides: [],   
@@ -28,7 +28,7 @@ const App = {
 
     
     // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
-    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    chordRegex: /\b([A-G][b#♭]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#♭]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
@@ -513,8 +513,8 @@ const App = {
             const matches = [...line.matchAll(this.chordRegex)];
             for (const m of matches) {
                 const o = m[0], r = m[1], q = m[2] || '', b = m[3] || '';
-                const nr = this.shiftNote(r, semitones); 
-                const nb = b ? '/' + this.shiftNote(b.substring(1), semitones) : '';
+                const nr = this.(r, semitones); 
+                const nb = b ? '/' + this.(b.substring(1), semitones) : '';
                 const nf = nr + q + nb;
                 const p = m.index + offset, d = nf.length - o.length;
                 let pre = result.substring(0, p), suf = result.substring(p + o.length);
@@ -528,19 +528,18 @@ const App = {
     },
 
     shiftNote(note, semitones) {
-        // 1. Find the numeric index of the current note (0-11)
-        let idx = this.musical.keys.indexOf(note);
-        if (idx === -1) idx = this.musical.flats.indexOf(note);
-        
-        // If note not found (shouldn't happen with chordRegex), return as is
-        if (idx === -1) return note;
+    // Normalize unicode flat to 'b' for array lookup if necessary
+    let normalizedNote = note.replace('♭', 'b');
+    
+    let idx = this.musical.keys.indexOf(normalizedNote);
+    if (idx === -1) idx = this.musical.flats.indexOf(normalizedNote);
+    
+    if (idx === -1) return note;
 
-        // 2. Calculate the new index based on semitones
-        let newIdx = (idx + semitones) % 12;
-        if (newIdx < 0) newIdx += 12;
+    let newIdx = (idx + semitones) % 12;
+    if (newIdx < 0) newIdx += 12;
 
-        // 3. Always return the note from your fixed convention list
-        return this.musical.preferred[newIdx];
+    return this.musical.preferred[newIdx];
     },
 
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
