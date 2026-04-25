@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.9",
+    version: "2.2.8a",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -17,10 +17,10 @@ const App = {
     },
 
     musical: {
-    keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-    // Added ♭ to the flats array
-    flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B', 'D♭', 'E♭', 'G♭', 'A♭', 'B♭'],
-    preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+        keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
+        // This follows your fixed convention:
+        preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
     originalSlides: [],   
@@ -28,7 +28,7 @@ const App = {
 
     
     // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
-    chordRegex: /\b([A-G][b#♭]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#♭]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
@@ -490,18 +490,54 @@ const App = {
             const slides = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
             for (const path of slides) {
                 let content = await zip.file(path).async('string');
-                content = content.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
+                content = this.transposeParagraphs(content, semitones);
                 zip.file(path, content);
             }
             const notes = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
             for (const path of notes) {
                 let nc = await zip.file(path).async('string');
-                nc = nc.replace(/<a:t>(.*?)<\/a:t>/g, (_, text) => `<a:t>${this.transposeLine(this.unescXml(text), semitones)}</a:t>`);
+                nc = this.transposeParagraphs(nc, semitones);
                 zip.file(path, nc);
             }
             saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
         } catch (err) { alert(err.message); this.hideLoading(); }
+    },
+
+    transposeParagraphs(xml, semitones) {
+        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
+            let pText = '';
+            const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+            let match;
+            while ((match = tagRegex.exec(pXml)) !== null) {
+                if (match[0].startsWith('<a:br')) pText += '\n';
+                else pText += this.unescXml(match[2] || '');
+            }
+            if (!pText.trim()) return matchFull;
+            
+            const transposedText = this.transposeLine(pText, semitones);
+            if (transposedText !== pText) {
+                const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+                let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
+                const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
+                const pPr = pPrMatch ? pPrMatch[0] : '';
+                
+                const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
+                const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
+                
+                const lines = transposedText.split('\n');
+                let newRuns = '';
+                for (let i = 0; i < lines.length; i++) {
+                    const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
+                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
+                    if (i < lines.length - 1) {
+                        newRuns += `<a:br/>`;
+                    }
+                }
+                return `${pTagOpen}${pPr}${newRuns}</a:p>`;
+            }
+            return matchFull;
+        });
     },
 
     transposeLine(text, semitones) {
@@ -513,8 +549,8 @@ const App = {
             const matches = [...line.matchAll(this.chordRegex)];
             for (const m of matches) {
                 const o = m[0], r = m[1], q = m[2] || '', b = m[3] || '';
-                const nr = this.(r, semitones); 
-                const nb = b ? '/' + this.(b.substring(1), semitones) : '';
+                const nr = this.shiftNote(r, semitones); 
+                const nb = b ? '/' + this.shiftNote(b.substring(1), semitones) : '';
                 const nf = nr + q + nb;
                 const p = m.index + offset, d = nf.length - o.length;
                 let pre = result.substring(0, p), suf = result.substring(p + o.length);
@@ -528,18 +564,19 @@ const App = {
     },
 
     shiftNote(note, semitones) {
-    // Normalize unicode flat to 'b' for array lookup if necessary
-    let normalizedNote = note.replace('♭', 'b');
-    
-    let idx = this.musical.keys.indexOf(normalizedNote);
-    if (idx === -1) idx = this.musical.flats.indexOf(normalizedNote);
-    
-    if (idx === -1) return note;
+        // 1. Find the numeric index of the current note (0-11)
+        let idx = this.musical.keys.indexOf(note);
+        if (idx === -1) idx = this.musical.flats.indexOf(note);
+        
+        // If note not found (shouldn't happen with chordRegex), return as is
+        if (idx === -1) return note;
 
-    let newIdx = (idx + semitones) % 12;
-    if (newIdx < 0) newIdx += 12;
+        // 2. Calculate the new index based on semitones
+        let newIdx = (idx + semitones) % 12;
+        if (newIdx < 0) newIdx += 12;
 
-    return this.musical.preferred[newIdx];
+        // 3. Always return the note from your fixed convention list
+        return this.musical.preferred[newIdx];
     },
 
     syncPresentationRegistry(newZip, presXml, presRelsXml, generated) {
