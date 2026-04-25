@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.8a",
+    version: "2.3.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -505,41 +505,90 @@ const App = {
     },
 
     transposeParagraphs(xml, semitones) {
-        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
-            let pText = '';
-            const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-            let match;
-            while ((match = tagRegex.exec(pXml)) !== null) {
-                if (match[0].startsWith('<a:br')) pText += '\n';
-                else pText += this.unescXml(match[2] || '');
-            }
-            if (!pText.trim()) return matchFull;
+        // Process every paragraph (<a:p>)
+        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (pMatch, pContent) => {
             
-            const transposedText = this.transposeLine(pText, semitones);
-            if (transposedText !== pText) {
-                const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
-                const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
-                const pPr = pPrMatch ? pPrMatch[0] : '';
-                
-                const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
-                const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-                
-                const lines = transposedText.split('\n');
-                let newRuns = '';
-                for (let i = 0; i < lines.length; i++) {
-                    const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
-                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
-                    if (i < lines.length - 1) {
-                        newRuns += `<a:br/>`;
-                    }
+            // Process every run (<a:r>) and line break (<a:br>) inside the paragraph
+            const newContent = pContent.replace(/<a:r>([\s\S]*?)<\/a:r>/g, (rMatch, rInner) => {
+                // 1. Extract Run Properties (rPr) and Text (t)
+                const rPrMatch = rInner.match(/<a:rPr[^>]*>([\s\S]*?)<\/a:rPr>/);
+                const tMatch = rInner.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/);
+    
+                if (!tMatch) return rMatch; // No text in this run
+    
+                const rPr = rPrMatch ? rPrMatch[0] : '';
+                const text = this.unescXml(tMatch[1]);
+    
+                // 2. CHECK FOR 18pt FONT (sz="1800")
+                // Also check if it contains actual chords via regex just in case
+                const is18pt = rPr.includes('sz="1800"');
+                const hasChords = this.chordRegex.test(text);
+    
+                if (is18pt || hasChords) {
+                    // This is a chord run. Transpose the text inside it.
+                    const transposedText = this.transposeTextContent(text, semitones);
+                    
+                    // Escape XML and preserve spaces with Non-Breaking Spaces
+                    const escaped = this.escXml(transposedText).replace(/ /g, '\u00A0');
+                    
+                    // Replace only the text content inside the run
+                    return rInner.replace(/<a:t[^>]*>([\s\S]*?)<\/a:t>/, 
+                        `<a:t xml:space="preserve">${escaped}</a:t>`);
                 }
-                return `${pTagOpen}${pPr}${newRuns}</a:p>`;
-            }
-            return matchFull;
+    
+                // Not a chord run, return original run exactly as is
+                return rMatch;
+            });
+    
+            // Reconstruct paragraph: keep original <a:p> tag and properties, swap inner content
+            const pTagMatch = pMatch.match(/^<a:p[^>]*>/);
+            const pPrMatch = pContent.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
+            const pPr = pPrMatch ? pPrMatch[0] : '';
+            const bodyWithoutPr = newContent.replace(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/, '');
+    
+            return (pTagMatch ? pTagMatch[0] : '<a:p>') + pPr + bodyWithoutPr + '</a:p>';
         });
     },
 
+    transposeTextContent(text, semitones) {
+        if (semitones === 0) return text;
+        let result = text;
+        let offset = 0;
+        
+        this.chordRegex.lastIndex = 0;
+        const matches = [...text.matchAll(this.chordRegex)];
+        
+        for (const m of matches) {
+            const originalChord = m[0];
+            const root = m[1];
+            const suffix = m[2] || '';
+            const bass = m[3] || '';
+
+            const newRoot = this.shiftNote(root, semitones); 
+            const newBass = bass ? '/' + this.shiftNote(bass.substring(1), semitones) : '';
+            const newChord = newRoot + suffix + newBass;
+
+            const position = m.index + offset;
+            const diff = newChord.length - originalChord.length;
+
+            let pre = result.substring(0, position);
+            let suf = result.substring(position + originalChord.length);
+
+            if (diff > 0 && (suf.startsWith(' ') || suf.startsWith('\u00A0'))) {
+                suf = suf.substring(1); 
+                offset--;
+            } else if (diff < 0) {
+                suf = '\u00A0'.repeat(Math.abs(diff)) + suf; 
+                offset += Math.abs(diff);
+            }
+
+            result = pre + newChord + suf;
+            offset += diff;
+        }
+        return result;
+    },
+
+    
     transposeLine(text, semitones) {
         if (semitones === 0) return text;
         const lines = text.split('\n');
