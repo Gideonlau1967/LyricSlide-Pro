@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.8a",
+    version: "2.3.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -28,7 +28,7 @@ const App = {
 
     
     // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
-    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    chordRegex: /(?:^|(?<=\s|[\(\)\[\]]))([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
@@ -407,7 +407,7 @@ const App = {
                 const isCenter = (userAlign === 'ctr');
                 for (let i = 0; i < rawLines.length; i++) {
                     let line = rawLines[i], nextLine = rawLines[i + 1];
-                    if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
+                    if (this.Line(line) && nextLine !== undefined && !this.Line(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
                             // Ensure this says 'makeGhostAlignmentLine'
@@ -474,10 +474,12 @@ const App = {
     },
 
     isChordLine(line) {
-        if (!line || line.trim() === '') return false;
-        const words = line.trim().split(/\s+/);
-        const chords = line.match(this.chordRegex) || [];
-        return chords.length >= words.length * 0.6 || (chords.length > 0 && words.length <= 2);
+    if (!line || line.trim() === '') return false;
+    // Normalize non-breaking spaces to standard spaces for detection
+    const cleanLine = line.replace(/\u00A0/g, ' ');
+    const words = cleanLine.trim().split(/\s+/);
+    const chords = cleanLine.match(this.chordRegex) || [];
+    return chords.length >= words.length * 0.6 || (chords.length > 0 && words.length <= 2);
     },
 
     async transpose() {
@@ -505,39 +507,43 @@ const App = {
     },
 
     transposeParagraphs(xml, semitones) {
-        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
-            let pText = '';
-            const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-            let match;
-            while ((match = tagRegex.exec(pXml)) !== null) {
-                if (match[0].startsWith('<a:br')) pText += '\n';
-                else pText += this.unescXml(match[2] || '');
-            }
-            if (!pText.trim()) return matchFull;
+    return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
+        let pText = '';
+        const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+        let match;
+        while ((match = tagRegex.exec(pXml)) !== null) {
+            if (match[0].startsWith('<a:br')) pText += '\n';
+            else pText += this.unescXml(match[2] || '');
+        }
+
+        // NORMALIZATION: Convert non-breaking spaces to standard spaces
+        const normalizedText = pText.replace(/\u00A0/g, ' ');
+        if (!normalizedText.trim()) return matchFull;
+        
+        const transposedText = this.transposeLine(normalizedText, semitones);
+        
+        // Check against normalizedText
+        if (transposedText !== normalizedText) {
+            const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+            let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
+            const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
+            const pPr = pPrMatch ? pPrMatch[0] : '';
             
-            const transposedText = this.transposeLine(pText, semitones);
-            if (transposedText !== pText) {
-                const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
-                const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
-                const pPr = pPrMatch ? pPrMatch[0] : '';
-                
-                const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
-                const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-                
-                const lines = transposedText.split('\n');
-                let newRuns = '';
-                for (let i = 0; i < lines.length; i++) {
-                    const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
-                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
-                    if (i < lines.length - 1) {
-                        newRuns += `<a:br/>`;
-                    }
-                }
-                return `${pTagOpen}${pPr}${newRuns}</a:p>`;
+            const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
+            const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
+            
+            const lines = transposedText.split('\n');
+            let newRuns = '';
+            for (let i = 0; i < lines.length; i++) {
+                // Convert back to non-breaking spaces for PowerPoint compatibility
+                const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
+                newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
+                if (i < lines.length - 1) newRuns += `<a:br/>`;
             }
-            return matchFull;
-        });
+            return `${pTagOpen}${pPr}${newRuns}</a:p>`;
+        }
+        return matchFull;
+    });
     },
 
     transposeLine(text, semitones) {
