@@ -1,17 +1,17 @@
-/* LyricSlide Pro */
+/* LyricSlide Pro v2.3.0 */
 
 const App = {
-    version: "2.2.8a",
+    version: "2.3.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
         copyrightInfo: document.getElementById('copyrightInfo'),
         generateBtn: document.getElementById('generateBtn'),
-        
+
         transFileInput: document.getElementById('transFileInput'),
         transposeBtn: document.getElementById('transposeBtn'),
         semitoneDisplay: document.getElementById('semitoneDisplay'),
-        
+
         loadingOverlay: document.getElementById('loadingOverlay'),
         loadingText: document.getElementById('loadingText')
     },
@@ -19,27 +19,25 @@ const App = {
     musical: {
         keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
         flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
-        // This follows your fixed convention:
         preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    originalSlides: [],   
-    selectedTemplateFile: null, 
+    originalSlides: [],
+    selectedTemplateFile: null,
 
-    
-    // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
-    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    // FIXED REGEX: Specifically captures [b#♭] to ensure "Bb" is one group and doesn't leave "b" behind.
+    chordRegex: /\b([A-G][b#♭]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#♭]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
-        
+
         document.getElementById('alignmentSelect').addEventListener('change', () => {
             if (this.originalSlides.length > 0) this.updatePreview(0);
         });
 
         this.theme.init();
-        this.loadDefaultTemplates(); 
+        this.loadDefaultTemplates();
         window.LyricApp = this;
 
         const versionEl = document.getElementById('appVersion');
@@ -320,6 +318,13 @@ const App = {
         document.getElementById('selectedTemplateName').textContent = item.name;
     },
 
+    clearTemplate() {
+        this.selectedTemplateFile = null;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('selectedTemplateInfo').classList.add('hidden');
+        document.getElementById('selectedTemplateName').textContent = '—';
+    },
+
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
@@ -410,7 +415,6 @@ const App = {
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
-                            // Ensure this says 'makeGhostAlignmentLine'
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
                             injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
                         } else {
@@ -435,14 +439,9 @@ const App = {
 
     getChordStyle(lyricStyle) {
         let s = lyricStyle;
-        // Fix self-closing tags
         if (s.endsWith('/>')) s = s.replace('/>', '></a:rPr>');
-        // Strictly force 18pt (1800)
-        if (s.includes('sz=')) {
-            s = s.replace(/sz="\d+"/, 'sz="1800"');
-        } else {
-            s = s.replace('<a:rPr', '<a:rPr sz="1800"');
-        }
+        if (s.includes('sz=')) s = s.replace(/sz="\d+"/, 'sz="1800"');
+        else s = s.replace('<a:rPr', '<a:rPr sz="1800"');
         return s;
     },
 
@@ -461,7 +460,6 @@ const App = {
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(chordChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
-        // Correct name + 80% spacing
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
@@ -469,15 +467,16 @@ const App = {
         const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
-        // Correct name + 80% spacing
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
     isChordLine(line) {
-        if (!line || line.trim() === '') return false;
-        const words = line.trim().split(/\s+/);
-        const chords = line.match(this.chordRegex) || [];
-        return chords.length >= words.length * 0.6 || (chords.length > 0 && words.length <= 2);
+        if (!line || !line.trim()) return false;
+        // Normalize non-breaking spaces commonly found in PPT files for detection
+        const cleanLine = line.replace(/\u00A0/g, ' ').trim();
+        const words = cleanLine.split(/\s+/);
+        const chords = cleanLine.match(this.chordRegex) || [];
+        return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
     async transpose() {
@@ -485,20 +484,25 @@ const App = {
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
         if (!file) return alert('Select file.');
         try {
-            this.showLoading('Transposing...');
+            this.showLoading('Transposing Slides & Notes...');
             const zip = await JSZip.loadAsync(file);
+            
+            // Handle Slides
             const slides = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
             for (const path of slides) {
                 let content = await zip.file(path).async('string');
                 content = this.transposeParagraphs(content, semitones);
                 zip.file(path, content);
             }
+
+            // Handle Notes
             const notes = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
             for (const path of notes) {
                 let nc = await zip.file(path).async('string');
                 nc = this.transposeParagraphs(nc, semitones);
                 zip.file(path, nc);
             }
+
             saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
         } catch (err) { alert(err.message); this.hideLoading(); }
@@ -513,26 +517,26 @@ const App = {
                 if (match[0].startsWith('<a:br')) pText += '\n';
                 else pText += this.unescXml(match[2] || '');
             }
-            if (!pText.trim()) return matchFull;
             
-            const transposedText = this.transposeLine(pText, semitones);
-            if (transposedText !== pText) {
+            // Normalize non-breaking spaces for transposition calculation
+            const normalizedText = pText.replace(/\u00A0/g, ' ');
+            const transposedText = this.transposeLine(normalizedText, semitones);
+
+            if (transposedText !== normalizedText) {
                 const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                 let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
                 const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
                 const pPr = pPrMatch ? pPrMatch[0] : '';
-                
                 const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
                 const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-                
+
                 const lines = transposedText.split('\n');
                 let newRuns = '';
                 for (let i = 0; i < lines.length; i++) {
+                    // Re-encode as non-breaking spaces for PowerPoint
                     const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
                     newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
-                    if (i < lines.length - 1) {
-                        newRuns += `<a:br/>`;
-                    }
+                    if (i < lines.length - 1) newRuns += `<a:br/>`;
                 }
                 return `${pTagOpen}${pPr}${newRuns}</a:p>`;
             }
@@ -564,18 +568,12 @@ const App = {
     },
 
     shiftNote(note, semitones) {
-        // 1. Find the numeric index of the current note (0-11)
-        let idx = this.musical.keys.indexOf(note);
-        if (idx === -1) idx = this.musical.flats.indexOf(note);
-        
-        // If note not found (shouldn't happen with chordRegex), return as is
+        let n = note.replace('♭', 'b');
+        let idx = this.musical.keys.indexOf(n);
+        if (idx === -1) idx = this.musical.flats.indexOf(n);
         if (idx === -1) return note;
-
-        // 2. Calculate the new index based on semitones
         let newIdx = (idx + semitones) % 12;
         if (newIdx < 0) newIdx += 12;
-
-        // 3. Always return the note from your fixed convention list
         return this.musical.preferred[newIdx];
     },
 
