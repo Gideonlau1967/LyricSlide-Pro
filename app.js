@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.3.0",
+    version: "2.3.1",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -505,48 +505,59 @@ const App = {
     },
 
     transposeParagraphs(xml, semitones) {
-        // Process every paragraph (<a:p>)
+        // Detect if this is a Notes Slide (Notes don't have the <p:sld> tag)
+        const isNotes = xml.includes('<p:notes');
+    
         return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (pMatch, pContent) => {
             
-            // Process every run (<a:r>) and line break (<a:br>) inside the paragraph
-            const newContent = pContent.replace(/<a:r>([\s\S]*?)<\/a:r>/g, (rMatch, rInner) => {
-                // 1. Extract Run Properties (rPr) and Text (t)
-                const rPrMatch = rInner.match(/<a:rPr[^>]*>([\s\S]*?)<\/a:rPr>/);
+            // --- CASE 1: PRESENTER NOTES (Use the original logic that worked) ---
+            if (isNotes) {
+                let pText = '';
+                const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+                let match;
+                while ((match = tagRegex.exec(pContent)) !== null) {
+                    if (match[0].startsWith('<a:br')) pText += '\n';
+                    else pText += this.unescXml(match[2] || '');
+                }
+    
+                if (!this.isChordLine(pText)) return pMatch;
+    
+                const transposedText = this.transposeTextContent(pText, semitones);
+                
+                // Rebuild the notes paragraph simply
+                const rPrMatch = pContent.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+                const style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US" sz="1200"/>';
+                const lines = transposedText.split('\n');
+                let newRuns = '';
+                for (let i = 0; i < lines.length; i++) {
+                    const escaped = this.escXml(lines[i]);
+                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escaped}</a:t></a:r>`;
+                    if (i < lines.length - 1) newRuns += `<a:br/>`;
+                }
+                
+                const pTagMatch = pMatch.match(/^<a:p[^>]*>/);
+                return (pTagMatch ? pTagMatch[0] : '<a:p>') + newRuns + '</a:p>';
+            }
+    
+            // --- CASE 2: SLIDES (Use the 18pt font size logic) ---
+            const newInner = pContent.replace(/<a:r>([\s\S]*?)<\/a:r>/g, (rMatch, rInner) => {
                 const tMatch = rInner.match(/<a:t[^>]*>([\s\S]*?)<\/a:t>/);
+                if (!tMatch) return rMatch;
     
-                if (!tMatch) return rMatch; // No text in this run
-    
+                const rPrMatch = rInner.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                 const rPr = rPrMatch ? rPrMatch[0] : '';
                 const text = this.unescXml(tMatch[1]);
     
-                // 2. CHECK FOR 18pt FONT (sz="1800")
-                // Also check if it contains actual chords via regex just in case
-                const is18pt = rPr.includes('sz="1800"');
-                const hasChords = this.chordRegex.test(text);
-    
-                if (is18pt || hasChords) {
-                    // This is a chord run. Transpose the text inside it.
+                // For slides, we strictly check for 18pt (sz="1800")
+                if (rPr.includes('sz="1800"')) {
                     const transposedText = this.transposeTextContent(text, semitones);
-                    
-                    // Escape XML and preserve spaces with Non-Breaking Spaces
                     const escaped = this.escXml(transposedText).replace(/ /g, '\u00A0');
-                    
-                    // Replace only the text content inside the run
-                    return rInner.replace(/<a:t[^>]*>([\s\S]*?)<\/a:t>/, 
-                        `<a:t xml:space="preserve">${escaped}</a:t>`);
+                    return rInner.replace(/(<a:t[^>]*>)([\s\S]*?)(<\/a:t>)/, `$1${escaped}$3`);
                 }
-    
-                // Not a chord run, return original run exactly as is
                 return rMatch;
             });
     
-            // Reconstruct paragraph: keep original <a:p> tag and properties, swap inner content
-            const pTagMatch = pMatch.match(/^<a:p[^>]*>/);
-            const pPrMatch = pContent.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
-            const pPr = pPrMatch ? pPrMatch[0] : '';
-            const bodyWithoutPr = newContent.replace(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/, '');
-    
-            return (pTagMatch ? pTagMatch[0] : '<a:p>') + pPr + bodyWithoutPr + '</a:p>';
+            return pMatch.replace(pContent, newInner);
         });
     },
 
