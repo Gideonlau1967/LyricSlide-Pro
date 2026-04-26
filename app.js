@@ -456,7 +456,7 @@ const App = {
         }
     
         return s;
-    }
+    },
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
         const chordStyle = this.getChordStyle(lyricStyle);
