@@ -437,14 +437,26 @@ const App = {
         let s = lyricStyle;
         if (s.endsWith('/>')) s = s.replace('/>', '></a:rPr>');
         
-        // Ensure sz="1800" (18pt) is set and any existing size is overwritten
+        // 1. Force font size to 18pt (1800)
         if (s.includes('sz=')) {
             s = s.replace(/sz="\d+"/, 'sz="1800"');
         } else {
             s = s.replace('<a:rPr', '<a:rPr sz="1800"');
         }
+    
+        // 2. Force color to Grey (#888888)
+        const grayColorXml = '<a:solidFill><a:srgbClr val="888888"/></a:solidFill>';
+        
+        if (s.includes('<a:solidFill>')) {
+            // If the template already has a color, replace it with grey
+            s = s.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, grayColorXml);
+        } else {
+            // If there is no color tag, insert it before the closing tag
+            s = s.replace('></a:rPr>', grayColorXml + '</a:rPr>');
+        }
+    
         return s;
-    },
+    }
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
         const chordStyle = this.getChordStyle(lyricStyle);
