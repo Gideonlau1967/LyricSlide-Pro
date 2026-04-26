@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.4.1",
+    version: "2.4.1a",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -462,7 +462,7 @@ const App = {
             }
         }
         // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
     makePptLine(text, style, align) {
@@ -470,7 +470,7 @@ const App = {
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
         // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
     isChordLine(line) {
