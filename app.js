@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.4.0",
+    version: "2.4.5",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -407,22 +407,38 @@ const App = {
                 const isCenter = (userAlign === 'ctr');
                 for (let i = 0; i < rawLines.length; i++) {
                     let line = rawLines[i], nextLine = rawLines[i + 1];
+                    
+                    // Logic for Chord + Lyric pairs
                     if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
-                            // Ensure this says 'makeGhostAlignmentLine'
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
                             injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
                         } else {
-                            injectedXml += this.makePptLine(line, this.Style(style), 'l');
+                            injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
                             injectedXml += this.makePptLine(nextLine, style, 'l');
                         }
                         i++;
                     } else {
                         const text = line.trim();
                         const alignTag = isCenter ? 'ctr' : 'l';
-                        if (text !== "") injectedXml += this.makePptLine(text, style, alignTag);
-                        else injectedXml += `<a:p><a:pPr algn="${alignTag}"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        
+                        // NEW: Detect section tags like [Verse], [Bridge]
+                        const isSectionTag = text.startsWith('[') && text.endsWith(']');
+                        let currentStyle = style;
+                        
+                        if (isSectionTag) {
+                            // Set font size to 20pt (2000 in PPT XML)
+                            currentStyle = currentStyle.includes('sz=') 
+                                ? currentStyle.replace(/sz="\d+"/, 'sz="2000"') 
+                                : currentStyle.replace('<a:rPr', '<a:rPr sz="2000"');
+                        }
+
+                        if (text !== "") {
+                            injectedXml += this.makePptLine(text, currentStyle, alignTag);
+                        } else {
+                            injectedXml += `<a:p><a:pPr algn="${alignTag}"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                        }
                     }
                 }
                 injectedXml += `<a:p><a:pPr algn="${isCenter ? 'ctr' : 'l'}"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
@@ -437,12 +453,21 @@ const App = {
         let s = lyricStyle;
         if (s.endsWith('/>')) s = s.replace('/>', '></a:rPr>');
         
-        // Ensure sz="1800" (18pt) is set and any existing size is overwritten
+        // 1. Set chord font size to 18pt
         if (s.includes('sz=')) {
             s = s.replace(/sz="\d+"/, 'sz="1800"');
         } else {
             s = s.replace('<a:rPr', '<a:rPr sz="1800"');
         }
+
+        // 2. Set chord color to Medium Grey (#808080)
+        const greyFill = '<a:solidFill><a:srgbClr val="808080"/></a:solidFill>';
+        if (s.includes('<a:solidFill>')) {
+            s = s.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, greyFill);
+        } else {
+            s = s.replace('</a:rPr>', greyFill + '</a:rPr>');
+        }
+
         return s;
     },
 
@@ -450,6 +475,8 @@ const App = {
         const chordStyle = this.getChordStyle(lyricStyle);
         let ghostStyle = lyricStyle;
         if (ghostStyle.endsWith('/>')) ghostStyle = ghostStyle.replace('/>', '></a:rPr>');
+        
+        // Ensure ghost text is invisible
         ghostStyle = ghostStyle.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '').replace('<a:rPr', '<a:rPr><a:noFill/>');
         
         let runsXml = "";
@@ -461,16 +488,17 @@ const App = {
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(chordChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
-        // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
+        // Spacing set to 50% (50000)
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
     makePptLine(text, style, align) {
         const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
-        // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
+        
+        // Spacing set to 50% (50000)
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
     isChordLine(line) {
