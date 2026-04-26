@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.4.5",
+    version: "2.5.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -174,7 +174,11 @@ const App = {
                 const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
                 const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
                 const notesPath = this.getNotesRelPath(relsXml);
-                let slideData = [];
+                
+                // --- START OF INSERTED/MODIFIED SECTION ---
+                let slideData = [];  // For the visual slide layout
+                let notesText = "";   // For the hidden presenter notes text
+
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
@@ -188,15 +192,24 @@ const App = {
                             if (match[0].startsWith('<a:br')) pText += '\n';
                             else pText += this.unescXml(match[2] || '');
                         }
+                        
                         if (pText.trim()) {
+                            // We add it to the visual slide array
                             slideData.push({ text: pText, alignment: 'left', isTitle: false });
+                            // And we append it to the full notes string
+                            notesText += pText + '\n';
                         }
                     }
-                } else {
-                    slideData.push({ text: "[No Notes Found]", alignment: 'left', isTitle: false });
                 }
-                this.originalSlides.push(slideData);
+
+                // Push an object containing both instead of just an array
+                this.originalSlides.push({
+                    slideContent: slideData.length > 0 ? slideData : [{ text: "[No Content]", alignment: 'left' }],
+                    notes: notesText.trim()
+                });
+                // --- END OF INSERTED/MODIFIED SECTION ---
             }
+            
             document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
             this.updatePreview(0);
             this.hideLoading();
@@ -211,37 +224,60 @@ const App = {
         const container = document.getElementById('previewContainer');
         const userAlign = document.getElementById('alignmentSelect').value;
         container.innerHTML = '';
+    
         if (this.originalSlides.length === 0) {
             container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
             return;
         }
-
-        this.originalSlides.forEach((slideData, idx) => {
+    
+        this.originalSlides.forEach((slideObj, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
+            
             const card = document.createElement('div');
             card.className = 'preview-card';
             card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>`;
+    
+            // 1. Render Slide Content (Lyrics)
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
-            for (let i = 0; i < slideData.length; i++) {
-                const para = slideData[i];
+            
+            slideObj.slideContent.forEach(para => {
                 const originalText = para.text;
+                // Filter out metadata and titles
                 const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(originalText);
+                
                 if (originalText.trim() && !isMetadata && !para.isTitle) {
                     const lineDiv = document.createElement('div');
                     lineDiv.style.textAlign = (userAlign === 'l' ? 'left' : 'center'); 
+                    
+                    // Transpose and highlight chords
                     const transposed = this.transposeLine(originalText, semitones);
                     lineDiv.innerHTML = this.renderChordHTML(transposed);
                     contentDiv.appendChild(lineDiv);
                 }
+            });
+            card.appendChild(contentDiv);
+    
+            // 2. Render Presenter Notes (Transposed)
+            if (slideObj.notes) {
+                const notesDiv = document.createElement('div');
+                // Adding a visual border and distinct color for the notes area
+                notesDiv.className = 'mt-4 pt-2 border-t border-slate-200 text-left bg-slate-50/50 -mx-4 px-4 pb-2';
+                
+                const transposedNotes = this.transposeLine(slideObj.notes, semitones);
+                
+                notesDiv.innerHTML = `
+                    <div class="text-[9px] text-amber-600 font-bold uppercase mb-1 tracking-wider">Presenter Notes</div>
+                    <div class="text-[11px] text-slate-500 font-mono whitespace-pre-wrap leading-relaxed">${this.renderChordHTML(transposedNotes)}</div>
+                `;
+                card.appendChild(notesDiv);
             }
-            if (contentDiv.children.length > 0) {
-                card.appendChild(contentDiv);
-                wrapper.appendChild(card);
-                container.appendChild(wrapper);
-            }
+    
+            wrapper.appendChild(card);
+            container.appendChild(wrapper);
         });
+    
         this.updateZoom();
     },
 
@@ -611,23 +647,64 @@ const App = {
     },
 
     transposeLine(text, semitones) {
-        if (semitones === 0) return text;
+        // If no transposition is needed or text is empty, return original
+        if (semitones === 0 || !text) return text;
+    
         const lines = text.split('\n');
         return lines.map(line => {
-            if (!this.isChordLine(line)) return line;
-            let result = line, offset = 0;
+            // IMPORTANT: We removed "if (!this.isChordLine(line)) return line;"
+            // This allows chords inside Presenter Notes (like "[G] Amazing Grace") 
+            // to be transposed even though the line is mostly lyrics.
+    
+            let result = line;
+            let offset = 0;
+            
+            // Find all chord matches in the current line
             const matches = [...line.matchAll(this.chordRegex)];
+            
+            // If no chords are found in this specific line, return it as is
+            if (matches.length === 0) return line;
+    
             for (const m of matches) {
-                const o = m[0], r = m[1], q = m[2] || '', b = m[3] || '';
-                const nr = this.shiftNote(r, semitones); 
-                const nb = b ? '/' + this.shiftNote(b.substring(1), semitones) : '';
-                const nf = nr + q + nb;
-                const p = m.index + offset, d = nf.length - o.length;
-                let pre = result.substring(0, p), suf = result.substring(p + o.length);
-                if (d > 0 && suf.startsWith(' ')) { suf = suf.substring(1); offset--; }
-                else if (d < 0) { suf = ' '.repeat(Math.abs(d)) + suf; offset += Math.abs(d); }
-                result = pre + nf + suf;
-                offset += d;
+                const originalFull = m[0];       // e.g., "C#m7/G"
+                const rootNote = m[1];           // e.g., "C#"
+                const suffix = m[2] || '';       // e.g., "m7"
+                const bassPart = m[3] || '';     // e.g., "/G"
+    
+                // 1. Shift the main root note
+                const newRoot = this.shiftNote(rootNote, semitones);
+    
+                // 2. Shift the bass note if it exists (e.g., the "G" in "C/G")
+                let newBass = '';
+                if (bassPart) {
+                    const bassNote = bassPart.substring(1); // Remove the "/"
+                    newBass = '/' + this.shiftNote(bassNote, semitones);
+                }
+    
+                const newChord = newRoot + suffix + newBass;
+    
+                // 3. Calculate position with current offset (offset changes as string length changes)
+                const position = m.index + offset;
+                const lengthDiff = newChord.length - originalFull.length;
+    
+                let pre = result.substring(0, position);
+                let suf = result.substring(position + originalFull.length);
+    
+                // 4. Alignment Logic (mainly for chords-over-lyrics on slides)
+                // If chord got longer and there is a space after it, remove a space
+                if (lengthDiff > 0 && suf.startsWith(' ')) {
+                    suf = suf.substring(1);
+                    offset--;
+                } 
+                // If chord got shorter, add spaces to keep the rest of the line aligned
+                else if (lengthDiff < 0) {
+                    suf = ' '.repeat(Math.abs(lengthDiff)) + suf;
+                    offset += Math.abs(lengthDiff);
+                }
+    
+                // Construct the new line
+                result = pre + newChord + suf;
+                offset += lengthDiff;
             }
             return result;
         }).join('\n');
