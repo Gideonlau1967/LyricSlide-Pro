@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.5.1",
+    version: "2.5.2",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -175,27 +175,31 @@ const App = {
                 const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
                 const notesPath = this.getNotesRelPath(relsXml);
                 
-                let slideData = [];
-                let notesText = ""; 
+                let slideData = []; // For visual lyrics
+                let notesText = ""; // For raw presenter notes
     
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
                     let pMatch;
+    
                     while ((pMatch = pRegex.exec(notesXml)) !== null) {
                         const pContent = pMatch[1];
                         const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
                         let pText = '';
                         let match;
+                        
                         while ((match = tagRegex.exec(pContent)) !== null) {
-                            if (match[0].startsWith('<a:br')) pText += '\n'; // Manual line break
+                            if (match[0].startsWith('<a:br')) pText += '\n';
                             else pText += this.unescXml(match[2] || '');
                         }
                         
+                        // Add to slide preview array
                         if (pText.trim()) {
                             slideData.push({ text: pText, alignment: 'left' });
                         }
-                        // Add a newline after every paragraph to separate blocks of text
+                        
+                        // ADD TO NOTES: Force a newline after every paragraph to prevent "CAnd"
                         notesText += pText + '\n';
                     }
                 }
@@ -205,11 +209,13 @@ const App = {
                     notes: notesText.trim()
                 });
             }
+            
             document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
             this.updatePreview(0);
             this.hideLoading();
         } catch (err) {
             console.error(err);
+            alert("Error: " + err.message);
             this.hideLoading();
         }
     },
@@ -217,67 +223,52 @@ const App = {
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
         const userAlign = document.getElementById('alignmentSelect').value;
-        
-        // 1. Clear previous preview
         container.innerHTML = '';
     
-        // 2. Handle empty state
-        if (!this.originalSlides || this.originalSlides.length === 0) {
-            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded. Upload a file to see preview.</div>';
+        if (this.originalSlides.length === 0) {
+            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
             return;
         }
     
-        // 3. Loop through stored slides
         this.originalSlides.forEach((slideObj, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
-            
             const card = document.createElement('div');
             card.className = 'preview-card';
-            
-            // Slide Number Header
             card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>`;
     
-            // --- SECTION 1: LYRICS / SLIDE CONTENT ---
+            // --- SECTION 1: VISUAL SLIDE LYRICS ---
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
             
             slideObj.slideContent.forEach(para => {
                 const originalText = para.text;
-                
-                // Filter out common metadata that shouldn't be in the main preview
                 const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(originalText);
                 
-                if (originalText.trim() && !isMetadata && !para.isTitle) {
+                if (originalText.trim() && !isMetadata) {
                     const lineDiv = document.createElement('div');
                     lineDiv.style.textAlign = (userAlign === 'l' ? 'left' : 'center'); 
-                    
-                    // Transpose the text
                     const transposed = this.transposeLine(originalText, semitones);
-                    
-                    // Highlight Chords and Convert \n to <br> for manual breaks
-                    lineDiv.innerHTML = this.renderChordHTML(transposed).replace(/\n/g, '<br>');
-                    
+                    // We use whitespace-pre-wrap here too to maintain chord spacing on slides
+                    lineDiv.className = "whitespace-pre-wrap"; 
+                    lineDiv.innerHTML = this.renderChordHTML(transposed);
                     contentDiv.appendChild(lineDiv);
                 }
             });
             card.appendChild(contentDiv);
     
             // --- SECTION 2: PRESENTER NOTES ---
-            if (slideObj.notes && slideObj.notes.trim() !== "") {
+            if (slideObj.notes) {
                 const notesDiv = document.createElement('div');
-                // Stylized container for notes
-                notesDiv.className = 'mt-4 pt-3 border-t border-slate-200 text-left bg-slate-50/50 -mx-4 px-4 pb-2';
+                // 'whitespace-pre-wrap' keeps the line breaks and spaces.
+                // 'font-mono' ensures 'D' and 'G' take up the same width as lyrics.
+                notesDiv.className = 'mt-4 pt-2 border-t border-slate-200 text-left bg-slate-50/80 -mx-4 px-4 pb-2 whitespace-pre-wrap font-mono';
                 
-                // Transpose the full notes block
                 const transposedNotes = this.transposeLine(slideObj.notes, semitones);
                 
-                // Convert chords to HTML spans and then newlines to <br> tags
-                const htmlNotes = this.renderChordHTML(transposedNotes).replace(/\n/g, '<br>');
-                
                 notesDiv.innerHTML = `
-                    <div class="text-[9px] text-amber-600 font-bold uppercase mb-1 tracking-wider">Presenter Notes</div>
-                    <div class="text-[11px] text-slate-500 font-mono leading-relaxed">${htmlNotes}</div>
+                    <div class="text-[9px] text-amber-600 font-bold uppercase mb-1 font-sans">Presenter Notes</div>
+                    <div class="text-[11px] text-slate-600 leading-snug">${this.renderChordHTML(transposedNotes)}</div>
                 `;
                 card.appendChild(notesDiv);
             }
@@ -285,8 +276,6 @@ const App = {
             wrapper.appendChild(card);
             container.appendChild(wrapper);
         });
-    
-        // 4. Apply current zoom scale
         this.updateZoom();
     },
 
