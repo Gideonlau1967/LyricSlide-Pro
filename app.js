@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.5.0",
+    version: "2.5.1",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -167,7 +167,7 @@ const App = {
                     const numB = parseInt(b.match(/\d+/)[0]);
                     return numA - numB;
                 });
-
+    
             this.originalSlides = [];
             for (const path of slideFiles) {
                 const slideFileName = path.split('/').pop();
@@ -175,10 +175,9 @@ const App = {
                 const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
                 const notesPath = this.getNotesRelPath(relsXml);
                 
-                // --- START OF INSERTED/MODIFIED SECTION ---
-                let slideData = [];  // For the visual slide layout
-                let notesText = "";   // For the hidden presenter notes text
-
+                let slideData = [];
+                let notesText = ""; 
+    
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
@@ -189,33 +188,28 @@ const App = {
                         let pText = '';
                         let match;
                         while ((match = tagRegex.exec(pContent)) !== null) {
-                            if (match[0].startsWith('<a:br')) pText += '\n';
+                            if (match[0].startsWith('<a:br')) pText += '\n'; // Manual line break
                             else pText += this.unescXml(match[2] || '');
                         }
                         
                         if (pText.trim()) {
-                            // We add it to the visual slide array
-                            slideData.push({ text: pText, alignment: 'left', isTitle: false });
-                            // And we append it to the full notes string
-                            notesText += pText + '\n';
+                            slideData.push({ text: pText, alignment: 'left' });
                         }
+                        // Add a newline after every paragraph to separate blocks of text
+                        notesText += pText + '\n';
                     }
                 }
-
-                // Push an object containing both instead of just an array
+    
                 this.originalSlides.push({
-                    slideContent: slideData.length > 0 ? slideData : [{ text: "[No Content]", alignment: 'left' }],
+                    slideContent: slideData,
                     notes: notesText.trim()
                 });
-                // --- END OF INSERTED/MODIFIED SECTION ---
             }
-            
             document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
             this.updatePreview(0);
             this.hideLoading();
         } catch (err) {
             console.error(err);
-            alert("Error: " + err.message);
             this.hideLoading();
         }
     },
@@ -223,53 +217,67 @@ const App = {
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
         const userAlign = document.getElementById('alignmentSelect').value;
+        
+        // 1. Clear previous preview
         container.innerHTML = '';
     
-        if (this.originalSlides.length === 0) {
-            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
+        // 2. Handle empty state
+        if (!this.originalSlides || this.originalSlides.length === 0) {
+            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded. Upload a file to see preview.</div>';
             return;
         }
     
+        // 3. Loop through stored slides
         this.originalSlides.forEach((slideObj, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
             
             const card = document.createElement('div');
             card.className = 'preview-card';
+            
+            // Slide Number Header
             card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>`;
     
-            // 1. Render Slide Content (Lyrics)
+            // --- SECTION 1: LYRICS / SLIDE CONTENT ---
             const contentDiv = document.createElement('div');
             contentDiv.className = 'slide-content'; 
             
             slideObj.slideContent.forEach(para => {
                 const originalText = para.text;
-                // Filter out metadata and titles
+                
+                // Filter out common metadata that shouldn't be in the main preview
                 const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(originalText);
                 
                 if (originalText.trim() && !isMetadata && !para.isTitle) {
                     const lineDiv = document.createElement('div');
                     lineDiv.style.textAlign = (userAlign === 'l' ? 'left' : 'center'); 
                     
-                    // Transpose and highlight chords
+                    // Transpose the text
                     const transposed = this.transposeLine(originalText, semitones);
-                    lineDiv.innerHTML = this.renderChordHTML(transposed);
+                    
+                    // Highlight Chords and Convert \n to <br> for manual breaks
+                    lineDiv.innerHTML = this.renderChordHTML(transposed).replace(/\n/g, '<br>');
+                    
                     contentDiv.appendChild(lineDiv);
                 }
             });
             card.appendChild(contentDiv);
     
-            // 2. Render Presenter Notes (Transposed)
-            if (slideObj.notes) {
+            // --- SECTION 2: PRESENTER NOTES ---
+            if (slideObj.notes && slideObj.notes.trim() !== "") {
                 const notesDiv = document.createElement('div');
-                // Adding a visual border and distinct color for the notes area
-                notesDiv.className = 'mt-4 pt-2 border-t border-slate-200 text-left bg-slate-50/50 -mx-4 px-4 pb-2';
+                // Stylized container for notes
+                notesDiv.className = 'mt-4 pt-3 border-t border-slate-200 text-left bg-slate-50/50 -mx-4 px-4 pb-2';
                 
+                // Transpose the full notes block
                 const transposedNotes = this.transposeLine(slideObj.notes, semitones);
+                
+                // Convert chords to HTML spans and then newlines to <br> tags
+                const htmlNotes = this.renderChordHTML(transposedNotes).replace(/\n/g, '<br>');
                 
                 notesDiv.innerHTML = `
                     <div class="text-[9px] text-amber-600 font-bold uppercase mb-1 tracking-wider">Presenter Notes</div>
-                    <div class="text-[11px] text-slate-500 font-mono whitespace-pre-wrap leading-relaxed">${this.renderChordHTML(transposedNotes)}</div>
+                    <div class="text-[11px] text-slate-500 font-mono leading-relaxed">${htmlNotes}</div>
                 `;
                 card.appendChild(notesDiv);
             }
@@ -278,6 +286,7 @@ const App = {
             container.appendChild(wrapper);
         });
     
+        // 4. Apply current zoom scale
         this.updateZoom();
     },
 
