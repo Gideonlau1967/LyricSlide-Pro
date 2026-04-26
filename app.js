@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.2.8a",
+    version: "2.4.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -414,7 +414,7 @@ const App = {
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
                             injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
                         } else {
-                            injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
+                            injectedXml += this.makePptLine(line, this.Style(style), 'l');
                             injectedXml += this.makePptLine(nextLine, style, 'l');
                         }
                         i++;
@@ -435,9 +435,9 @@ const App = {
 
     getChordStyle(lyricStyle) {
         let s = lyricStyle;
-        // Fix self-closing tags
         if (s.endsWith('/>')) s = s.replace('/>', '></a:rPr>');
-        // Strictly force 18pt (1800)
+        
+        // Ensure sz="1800" (18pt) is set and any existing size is overwritten
         if (s.includes('sz=')) {
             s = s.replace(/sz="\d+"/, 'sz="1800"');
         } else {
@@ -506,37 +506,79 @@ const App = {
 
     transposeParagraphs(xml, semitones) {
         return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
-            let pText = '';
-            const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-            let match;
-            while ((match = tagRegex.exec(pXml)) !== null) {
-                if (match[0].startsWith('<a:br')) pText += '\n';
-                else pText += this.unescXml(match[2] || '');
-            }
-            if (!pText.trim()) return matchFull;
+            let logicLine = ""; 
+            let characterMetadata = []; // Stores { isGhost: bool, originalChar: string, style: string }
+
+            const runRegex = /<a:r>([\s\S]*?)<\/a:r>|<a:br\/>/g;
+            let m;
             
-            const transposedText = this.transposeLine(pText, semitones);
-            if (transposedText !== pText) {
-                const rPrMatch = pXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                let style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
-                const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
-                const pPr = pPrMatch ? pPrMatch[0] : '';
-                
-                const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
-                const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-                
-                const lines = transposedText.split('\n');
-                let newRuns = '';
-                for (let i = 0; i < lines.length; i++) {
-                    const escapedLine = this.escXml(lines[i]).replace(/ /g, '\u00A0');
-                    newRuns += `<a:r>${style}<a:t xml:space="preserve">${escapedLine}</a:t></a:r>`;
-                    if (i < lines.length - 1) {
-                        newRuns += `<a:br/>`;
-                    }
+            while ((m = runRegex.exec(pXml)) !== null) {
+                if (m[0] === '<a:br/>') {
+                    logicLine += "\n";
+                    characterMetadata.push({ isBr: true });
+                    continue;
                 }
-                return `${pTagOpen}${pPr}${newRuns}</a:p>`;
+                
+                const rPrMatch = m[1].match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+                const rStyle = rPrMatch ? rPrMatch[0] : '<a:rPr/>';
+                const isGhost = rStyle.includes('<a:noFill/>');
+                
+                const tMatch = m[1].match(/<a:t[^>]*>(.*?)<\/a:t>/);
+                const text = tMatch ? this.unescXml(tMatch[1]) : "";
+
+                for (let char of text) {
+                    characterMetadata.push({
+                        isGhost: isGhost,
+                        originalChar: char,
+                        style: rStyle,
+                        isBr: false
+                    });
+                    // If it's a ghost, we treat it as a space for the chord-detector
+                    logicLine += isGhost ? " " : char;
+                }
             }
-            return matchFull;
+
+            if (!logicLine.trim()) return matchFull;
+
+            const transposedLogic = this.transposeLine(logicLine, semitones);
+            if (transposedLogic === logicLine) return matchFull;
+
+            // RECONSTRUCTION
+            const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
+            const pPr = pPrMatch ? pPrMatch[0] : '';
+            const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
+            const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
+
+            let newRuns = "";
+            let metaIdx = 0;
+
+            for (let i = 0; i < transposedLogic.length; i++) {
+                const newChar = transposedLogic[i];
+                
+                if (newChar === "\n") {
+                    newRuns += "<a:br/>";
+                    // Skip the newline in metadata
+                    while(metaIdx < characterMetadata.length && !characterMetadata[metaIdx].isBr) metaIdx++;
+                    metaIdx++; 
+                    continue;
+                }
+
+                const meta = characterMetadata[metaIdx] || { isGhost: false, style: '<a:rPr sz="1800"/>' };
+
+                if (meta.isGhost && newChar === " ") {
+                    // This position was a ghost character (lyric) and remains a space in the chord line
+                    // We must use the original style (Large) to keep alignment
+                    newRuns += `<a:r>${meta.style}<a:t xml:space="preserve">${this.escXml(meta.originalChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
+                } else {
+                    // This is a visible chord character
+                    // We force the Chord Style (18pt)
+                    const chordStyle = this.getChordStyle(meta.style).replace('<a:noFill/>', ''); 
+                    newRuns += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(newChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
+                }
+                metaIdx++;
+            }
+
+            return `${pTagOpen}${pPr}${newRuns}</a:p>`;
         });
     },
 
