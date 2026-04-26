@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.4.1a",
+    version: "2.4.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -462,7 +462,7 @@ const App = {
             }
         }
         // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
     makePptLine(text, style, align) {
@@ -470,7 +470,7 @@ const App = {
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
         // Correct name + 80% spacing
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
+        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="80000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
     isChordLine(line) {
@@ -487,33 +487,28 @@ const App = {
         try {
             this.showLoading('Transposing...');
             const zip = await JSZip.loadAsync(file);
-            
-            // 1. Transpose Slides (Use Ghost Logic)
             const slides = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
             for (const path of slides) {
                 let content = await zip.file(path).async('string');
-                content = this.transposeParagraphs(content, semitones, false); // false = Not a note
+                content = this.transposeParagraphs(content, semitones);
                 zip.file(path, content);
             }
-    
-            // 2. Transpose Notes (Use Simple Logic)
             const notes = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
             for (const path of notes) {
                 let nc = await zip.file(path).async('string');
-                nc = this.transposeParagraphs(nc, semitones, true); // true = Is a note
+                nc = this.transposeParagraphs(nc, semitones);
                 zip.file(path, nc);
             }
-    
             saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
-    transposeParagraphs(xml, semitones, isNote = false) {
+    transposeParagraphs(xml, semitones) {
         return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
             let logicLine = ""; 
-            let characterMetadata = [];
-    
+            let characterMetadata = []; // Stores { isGhost: bool, originalChar: string, style: string }
+
             const runRegex = /<a:r>([\s\S]*?)<\/a:r>|<a:br\/>/g;
             let m;
             
@@ -526,13 +521,11 @@ const App = {
                 
                 const rPrMatch = m[1].match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                 const rStyle = rPrMatch ? rPrMatch[0] : '<a:rPr/>';
-                
-                // Notes don't have ghosts, so isGhost is always false for notes
-                const isGhost = !isNote && rStyle.includes('<a:noFill/>');
+                const isGhost = rStyle.includes('<a:noFill/>');
                 
                 const tMatch = m[1].match(/<a:t[^>]*>(.*?)<\/a:t>/);
                 const text = tMatch ? this.unescXml(tMatch[1]) : "";
-    
+
                 for (let char of text) {
                     characterMetadata.push({
                         isGhost: isGhost,
@@ -540,49 +533,51 @@ const App = {
                         style: rStyle,
                         isBr: false
                     });
+                    // If it's a ghost, we treat it as a space for the chord-detector
                     logicLine += isGhost ? " " : char;
                 }
             }
-    
+
             if (!logicLine.trim()) return matchFull;
-    
+
             const transposedLogic = this.transposeLine(logicLine, semitones);
             if (transposedLogic === logicLine) return matchFull;
-    
+
+            // RECONSTRUCTION
             const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
             const pPr = pPrMatch ? pPrMatch[0] : '';
             const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
             const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-    
+
             let newRuns = "";
             let metaIdx = 0;
-    
+
             for (let i = 0; i < transposedLogic.length; i++) {
                 const newChar = transposedLogic[i];
                 
                 if (newChar === "\n") {
                     newRuns += "<a:br/>";
+                    // Skip the newline in metadata
                     while(metaIdx < characterMetadata.length && !characterMetadata[metaIdx].isBr) metaIdx++;
                     metaIdx++; 
                     continue;
                 }
-    
-                const meta = characterMetadata[metaIdx] || { isGhost: false, style: '<a:rPr/>' };
-    
+
+                const meta = characterMetadata[metaIdx] || { isGhost: false, style: '<a:rPr sz="1800"/>' };
+
                 if (meta.isGhost && newChar === " ") {
-                    // SLIDE LOGIC: Keep invisible alignment
+                    // This position was a ghost character (lyric) and remains a space in the chord line
+                    // We must use the original style (Large) to keep alignment
                     newRuns += `<a:r>${meta.style}<a:t xml:space="preserve">${this.escXml(meta.originalChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
                 } else {
-                    // NOTE LOGIC: If it's a note, use original style. If it's a slide, force 18pt.
-                    let finalStyle = meta.style;
-                    if (!isNote) {
-                        finalStyle = this.getChordStyle(meta.style).replace('<a:noFill/>', ''); 
-                    }
-                    newRuns += `<a:r>${finalStyle}<a:t xml:space="preserve">${this.escXml(newChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
+                    // This is a visible chord character
+                    // We force the Chord Style (18pt)
+                    const chordStyle = this.getChordStyle(meta.style).replace('<a:noFill/>', ''); 
+                    newRuns += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(newChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
                 }
                 metaIdx++;
             }
-    
+
             return `${pTagOpen}${pPr}${newRuns}</a:p>`;
         });
     },
