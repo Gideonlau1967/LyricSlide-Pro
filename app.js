@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.6.5 */
 
 const App = {
-    version: "2.6.5 Fix Generate",
+    version: "2.6.5 Remove Trailing Space",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -336,10 +336,14 @@ const App = {
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
-        const lyrics = this.elements.lyricsInput.value || '';
         const copyright = this.elements.copyrightInfo.value || '';
         const userAlign = document.getElementById('alignmentSelect').value;
-
+        const lyrics = (this.elements.lyricsInput.value || '')
+            .split(/\r?\n/)
+            .map(line => line.trimEnd())
+            .join('\n')
+            .trim();
+        
         if (!file || !lyrics) return alert('Select a template and input lyrics.');
 
         try {
