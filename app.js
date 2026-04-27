@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.6.0",
+    version: "2.6.1",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -369,7 +369,7 @@ const App = {
                     let line = rawLines[i], nextLine = rawLines[i + 1];
                     
                     // Logic for Chord + Lyric pairs
-                    if (this.Line(line) && nextLine !== undefined && !this.Line(nextLine) && !nextLine.trim().startsWith('[')) {
+                    if (this.transposeLine(line) && nextLine !== undefined && !this.transposeLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
