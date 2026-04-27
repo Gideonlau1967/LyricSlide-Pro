@@ -1,4 +1,4 @@
-/* LyricSlide Pro - Version 2.7.0 (Hybrid Engine) */
+/* LyricSlide Pro - Version 2.7.0 (Combined Hybrid Engine) */
 
 const App = {
     version: "2.7.0 Hybrid Engine",
@@ -22,7 +22,7 @@ const App = {
         preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    // Strict Regex: Captures chords with or without brackets
+    // Robust Regex for chords
     chordRegex: /(?:\[)?\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?\b(?:\])?/g,
 
     originalSlides: [],   
@@ -32,6 +32,7 @@ const App = {
         if (this.elements.generateBtn) {
             this.elements.generateBtn.addEventListener('click', () => this.generate());
         }
+        
         if (this.elements.transposeBtn) {
             this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         }
@@ -48,7 +49,9 @@ const App = {
         window.LyricApp = this;
 
         const versionEl = document.getElementById('appVersion');
-        if (versionEl) { versionEl.textContent = this.version; }
+        if (versionEl) {
+            versionEl.textContent = this.version;
+        }
     },
 
     // --- THEME MANAGEMENT ---
@@ -96,7 +99,6 @@ const App = {
         }
     },
 
-    // --- VIEW MANAGEMENT ---
     setMode(mode) {
         const isGen = mode === 'gen';
         document.getElementById('modeGen').classList.toggle('active', isGen);
@@ -166,13 +168,16 @@ const App = {
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
         container.innerHTML = '';
-        if (this.originalSlides.length === 0) return;
+        if (this.originalSlides.length === 0) {
+            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
+            return;
+        }
         this.originalSlides.forEach((slide, idx) => {
             const wrapper = document.createElement('div');
             wrapper.className = 'preview-card-wrapper';
-            const transposedText = this.transposeLine(slide.notes, semitones);
             const card = document.createElement('div');
             card.className = 'preview-card';
+            const transposedText = this.transposeLine(slide.notes, semitones);
             card.innerHTML = `
                 <div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>
                 <div class="whitespace-pre font-mono text-[11px] leading-snug text-left">${this.renderChordHTML(transposedText)}</div>
@@ -183,15 +188,75 @@ const App = {
         this.updateZoom();
     },
 
+    unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
+    escXml(s) { return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c])); },
+    renderChordHTML(text) {
+        let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return html.replace(this.chordRegex, '<span class="chord">$&</span>');
+    },
+
+    showLoading(text) { this.elements.loadingText.textContent = text; this.elements.loadingOverlay.style.display = 'flex'; },
+    hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
+
+    // --- TEMPLATE GALLERY LOGIC (Unchanged) ---
+    async loadDefaultTemplates() {
+        const gallery = document.getElementById('templateGallery');
+        try {
+            const res = await fetch('./templates.json');
+            const names = await res.json();
+            const entries = names.map(name => ({
+                name, getFile: async () => {
+                    const r = await fetch(`./${encodeURIComponent(name)}`);
+                    const blob = await r.blob();
+                    return new File([blob], name, { type: blob.type });
+                }
+            }));
+            this.renderTemplateGallery(entries);
+        } catch (e) { gallery.innerHTML = `<div class="text-center py-8 text-slate-400 italic">Template library unavailable.</div>`; }
+    },
+
+    renderTemplateGallery(entries) {
+        const gallery = document.getElementById('templateGallery');
+        gallery.innerHTML = '';
+        const grid = document.createElement('div');
+        grid.className = 'template-grid';
+        entries.forEach(entry => {
+            const card = document.createElement('div');
+            card.className = 'template-card';
+            const img = document.createElement('img');
+            img.className = 'template-thumb';
+            img.src = entry.name.replace(/\.pptx$/i, '.png');
+            img.addEventListener('error', () => {
+                const ph = document.createElement('div'); ph.className = 'template-thumb-placeholder';
+                ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>'; img.replaceWith(ph);
+            });
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'template-card-name'; nameDiv.textContent = entry.name.replace(/\.pptx$/i, '');
+            card.appendChild(img); card.appendChild(nameDiv);
+            card.addEventListener('click', async () => {
+                const file = await entry.getFile(); this.selectTemplate({ name: entry.name, file }, card);
+            });
+            grid.appendChild(card);
+        });
+        gallery.appendChild(grid);
+    },
+
+    selectTemplate(item, cardEl) {
+        this.selectedTemplateFile = item.file;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        cardEl.classList.add('selected');
+        document.getElementById('selectedTemplateInfo').classList.remove('hidden');
+        document.getElementById('selectedTemplateName').textContent = item.name;
+    },
+
     // --- CORE GENERATION (Version A Style) ---
     async generate() {
         const file = this.selectedTemplateFile;
-        const titleText = this.elements.songTitle.value || '';
-        const lyricsText = (this.elements.lyricsInput.value || '').trim();
-        const copyrightText = this.elements.copyrightInfo.value || '';
+        const title = this.elements.songTitle.value || '';
+        const copyright = this.elements.copyrightInfo.value || '';
         const userAlign = document.getElementById('alignmentSelect').value;
-
-        if (!file || !lyricsText) return alert('Select a template and input lyrics.');
+        const lyrics = (this.elements.lyricsInput.value || '').trim();
+        if (!file || !lyrics) return alert('Select a template and input lyrics.');
 
         try {
             this.showLoading('Generating PPTX...');
@@ -207,18 +272,14 @@ const App = {
             const templateNotesXml = templateNotesPath ? await zip.file(templateNotesPath).async('string') : null;
 
             const splitRegex = /\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/;
-            let sections = ("\n" + lyricsText).split(splitRegex).filter(s => s.trim() !== '');
+            let sections = ("\n" + lyrics).split(splitRegex).filter(s => s.trim() !== '');
             const generated = [];
-
-            // 1. Pre-process template for fixed metadata (FIX: Updates Title/Copyright once)
-            let baseXml = this.lockInStyleAndReplace(templateXml, '[Title]', titleText);
-            baseXml = this.lockInStyleAndReplace(baseXml, '[Copyright Info]', copyrightText);
 
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
-                
-                // 2. Add specific lyrics for this slide
-                let slideXml = this.lockInStyleAndReplace(baseXml, '[Lyrics and Chords]', sectionText, userAlign);
+                let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', title);
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
 
                 const name = `song_gen_${i + 1}.xml`;
                 zip.file(`ppt/slides/${name}`, slideXml);
@@ -241,12 +302,12 @@ const App = {
                 }
             }
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
-            saveAs(await zip.generateAsync({ type: 'blob' }), `${(titleText || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
+            saveAs(await zip.generateAsync({ type: 'blob' }), `${(title || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
             this.hideLoading();
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
-    // --- TRANSPOSITION ENGINE (Combined Logic) ---
+    // --- TRANSPOSITION ENGINE (VERSION B SLIDE LOGIC + VERSION A NOTES LOGIC) ---
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
@@ -262,7 +323,7 @@ const App = {
                 slideXml = this.transposeParagraphs(slideXml, semitones);
                 zip.file(slide.path, slideXml);
 
-                // 2. Transpose Notes XML using Version A Logic (Clean Overwrite)
+                // 2. Transpose Notes XML using Version A Logic (Simple Overwrite)
                 if (slide.notesPath) {
                     const transposedNotes = this.transposeLine(slide.notes, semitones);
                     let notesXml = await zip.file(slide.notesPath).async('string');
@@ -277,22 +338,28 @@ const App = {
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
-    // --- VERSION B: CHARACTER-LEVEL SURGERY ---
+    // VERSION B ENGINE: Character-level Style Preservation
     transposeParagraphs(xml, semitones) {
         return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
-            let logicLine = ""; let charMeta = []; 
+            let logicLine = ""; 
+            let charMeta = []; 
             const runRegex = /<a:r>([\s\S]*?)<\/a:r>|<a:br\/>/g;
             let m;
+            
             while ((m = runRegex.exec(pXml)) !== null) {
-                if (m[0] === '<a:br/>') { logicLine += "\n"; charMeta.push({ isBr: true }); continue; }
+                if (m[0] === '<a:br/>') {
+                    logicLine += "\n"; charMeta.push({ isBr: true }); continue;
+                }
                 const rStyle = m[1].match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] || '<a:rPr/>';
                 const isGhost = rStyle.includes('<a:noFill/>');
                 const text = this.unescXml(m[1].match(/<a:t[^>]*>(.*?)<\/a:t>/)?.[1] || "");
+
                 for (let char of text) {
                     charMeta.push({ isGhost, originalChar: char, style: rStyle, isBr: false });
                     logicLine += isGhost ? " " : char;
                 }
             }
+
             if (!logicLine.trim()) return matchFull;
             const transposedLogic = this.transposeLine(logicLine, semitones);
             if (transposedLogic === logicLine) return matchFull;
@@ -300,9 +367,12 @@ const App = {
             const pPr = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/)?.[0] || '';
             const pTagOpen = matchFull.match(/^<a:p[^>]*>/)?.[0] || '<a:p>';
             let newRuns = "", metaIdx = 0;
+
             for (let i = 0; i < transposedLogic.length; i++) {
                 const newChar = transposedLogic[i];
-                if (newChar === "\n") { newRuns += "<a:br/>"; while(metaIdx < charMeta.length && !charMeta[metaIdx].isBr) metaIdx++; metaIdx++; continue; }
+                if (newChar === "\n") {
+                    newRuns += "<a:br/>"; while(metaIdx < charMeta.length && !charMeta[metaIdx].isBr) metaIdx++; metaIdx++; continue;
+                }
                 const meta = charMeta[metaIdx] || { isGhost: false, style: '<a:rPr sz="1800"/>' };
                 if (meta.isGhost && newChar === " ") {
                     newRuns += `<a:r>${meta.style}<a:t xml:space="preserve">${this.escXml(meta.originalChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
@@ -353,24 +423,24 @@ const App = {
         return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
-    // --- SHARED HELPERS ---
     getChordStyle(lyricStyle) {
         let s = lyricStyle.includes('sz=') ? lyricStyle.replace(/sz="\d+"/, 'sz="1800"') : lyricStyle.replace('<a:rPr', '<a:rPr sz="1800"');
         const greyFill = '<a:solidFill><a:srgbClr val="808080"/></a:solidFill>';
         return s.includes('<a:solidFill>') ? s.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, greyFill) : s.replace('</a:rPr>', greyFill + '</a:rPr>');
     },
 
+    // (Shared PPT construction helpers remain as they were in Version A)
     lockInStyleAndReplace(xml, ph, replacement, align = 'ctr') {
         const phRegex = new RegExp(this.getPlaceholderRegexStr(ph), 'gi');
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shape) => {
             if (!phRegex.test(shape)) return shape;
             const style = shape.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] || '<a:rPr lang="en-US"/>';
             if (ph !== '[Lyrics and Chords]') {
-                const escaped = (replacement || '').split('\n').map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                const escaped = replacement.split('\n').map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                 return shape.replace(phRegex, escaped);
             }
             let injected = `</a:t></a:r></a:p>`;
-            const rawLines = (replacement || '').split('\n');
+            const rawLines = replacement.split('\n');
             for (let i = 0; i < rawLines.length; i++) {
                 let line = rawLines[i], next = rawLines[i+1];
                 if (this.isChordLine(line) && next && !this.isChordLine(next) && !next.trim().startsWith('[')) {
@@ -403,8 +473,6 @@ const App = {
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc></a:pPr><a:r>${style}<a:t xml:space="preserve">${this.escXml(text)}</a:t></a:r></a:p>`;
     },
 
-    unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
-    escXml(s) { return (s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c])); },
     getPlaceholderRegexStr(ph) { return '\\[' + ph.replace(/[\[\]]/g, '').split('').map(c => (c === ' ' ? '\\s+' : this.escRegex(c))).join('(?:<[^>]+>|\\s)*') + '\\]'; },
     escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
     getSlideIds(xml) { let ids = [], m, r = /<p:sldId[^>]+id="([^"]+)"[^>]+r:id="([^"]+)"/g; while (m = r.exec(xml)) ids.push({id: m[1], rid: m[2]}); return ids; },
@@ -416,22 +484,6 @@ const App = {
         let rNode = doc.documentElement; [...rNode.getElementsByTagName('Relationship')].forEach(n => n.getAttribute('Type').endsWith('slide') && n.remove());
         gen.forEach(s => { let e = doc.createElement('Relationship'); e.setAttribute('Id', s.rid); e.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide'); e.setAttribute('Target', `slides/${s.name}`); rNode.appendChild(e); });
         zip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(doc));
-    },
-    showLoading(t) { this.elements.loadingText.textContent = t; this.elements.loadingOverlay.style.display = 'flex'; },
-    hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
-    async loadDefaultTemplates() {
-        try {
-            const res = await fetch('./templates.json');
-            const names = await res.json();
-            const entries = names.map(name => ({
-                name, getFile: async () => {
-                    const r = await fetch(`./${encodeURIComponent(name)}`);
-                    const blob = await r.blob();
-                    return new File([blob], name, { type: blob.type });
-                }
-            }));
-            this.renderTemplateGallery(entries);
-        } catch (e) { document.getElementById('templateGallery').innerHTML = `<div class="text-center py-8 text-slate-400 italic">Template library unavailable.</div>`; }
     }
 };
 
