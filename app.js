@@ -433,6 +433,48 @@ const App = {
         }
     },
 
+    // --- SHARED PPT CONTENT GENERATOR ---
+    generatePptContent(textBlock, style, userAlign) {
+        const rawLines = (textBlock || '').split(/\r?\n/);
+        const isCenter = (userAlign === 'ctr');
+        let injectedXml = "";
+
+        for (let i = 0; i < rawLines.length; i++) {
+            let line = rawLines[i], nextLine = rawLines[i + 1];
+            
+            if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
+                if (isCenter) {
+                    const maxLen = Math.max(line.length, nextLine.length);
+                    injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
+                    injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
+                } else {
+                    injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
+                    injectedXml += this.makePptLine(nextLine, style, 'l');
+                }
+                i++;
+            } else {
+                const text = line.trim();
+                const alignTag = isCenter ? 'ctr' : 'l';
+                const isSectionTag = text.startsWith('[') && text.endsWith(']');
+                let currentStyle = style;
+                
+                if (isSectionTag) {
+                    currentStyle = currentStyle.includes('sz=') 
+                        ? currentStyle.replace(/sz="\d+"/, 'sz="2000"') 
+                        : currentStyle.replace('<a:rPr', '<a:rPr sz="2000"');
+                }
+
+                if (text !== "") {
+                    injectedXml += this.makePptLine(text, currentStyle, alignTag);
+                } else {
+                    injectedXml += `<a:p><a:pPr algn="${alignTag}"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
+                }
+            }
+        }
+        return injectedXml;
+    },
+
+    // --- TEMPLATE GENERATION ONLY ---
     lockInStyleAndReplace(xml, placeholder, replacement, userAlign = 'ctr') {
         const phRegex = new RegExp(this.getPlaceholderRegexStr(placeholder), 'gi');
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
@@ -440,50 +482,38 @@ const App = {
                 const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g);
                 const defRPrMatch = shapeXml.match(/<a:defRPr[^>]*>[\s\S]*?<\/a:defRPr>/g);
                 let style = (rPrMatch ? rPrMatch[0] : (defRPrMatch ? defRPrMatch[0].replace('defRPr', 'rPr') : '<a:rPr lang="en-US"/>'));
-                const rawLines = (replacement || '').split(/\r?\n/);
 
                 if (placeholder !== '[Lyrics and Chords]') {
-                    const escapedText = rawLines.map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    const escapedText = (replacement || '').split(/\r?\n/).map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                     return shapeXml.replace(phRegex, escapedText);
                 }
 
-                let injectedXml = `</a:t></a:r></a:p>`;
-                const isCenter = (userAlign === 'ctr');
-                for (let i = 0; i < rawLines.length; i++) {
-                    let line = rawLines[i], nextLine = rawLines[i + 1];
-                    
-                    if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
-                        if (isCenter) {
-                            const maxLen = Math.max(line.length, nextLine.length);
-                            injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
-                            injectedXml += this.makePptLine(nextLine.padEnd(maxLen, ' '), style, 'ctr');
-                        } else {
-                            injectedXml += this.makePptLine(line, this.getChordStyle(style), 'l');
-                            injectedXml += this.makePptLine(nextLine, style, 'l');
-                        }
-                        i++;
-                    } else {
-                        const text = line.trim();
-                        const alignTag = isCenter ? 'ctr' : 'l';
-                        const isSectionTag = text.startsWith('[') && text.endsWith(']');
-                        let currentStyle = style;
-                        
-                        if (isSectionTag) {
-                            currentStyle = currentStyle.includes('sz=') 
-                                ? currentStyle.replace(/sz="\d+"/, 'sz="2000"') 
-                                : currentStyle.replace('<a:rPr', '<a:rPr sz="2000"');
-                        }
+                let injectedXml = `</a:t></a:r></a:p>` + this.generatePptContent(replacement, style, userAlign);
+                injectedXml += `<a:p><a:pPr algn="${userAlign === 'ctr' ? 'ctr' : 'l'}"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
 
-                        if (text !== "") {
-                            injectedXml += this.makePptLine(text, currentStyle, alignTag);
-                        } else {
-                            injectedXml += `<a:p><a:pPr algn="${alignTag}"><a:buNone/></a:pPr><a:r>${style}<a:t> </a:t></a:r></a:p>`;
-                        }
-                    }
-                }
-                injectedXml += `<a:p><a:pPr algn="${isCenter ? 'ctr' : 'l'}"><a:buNone/></a:pPr><a:r>${style}<a:t xml:space="preserve">`;
                 return shapeXml.replace(phRegex, () => injectedXml).replace(/<a:p><a:pPr[^>]*><a:buNone\/><\/a:pPr><a:r><a:rPr[^>]*><a:t xml:space="preserve"><\/a:t><\/a:r><\/a:p>/g, '')
                                 .replace('</a:bodyPr>', '<a:normAutofit fontScale="92000" lnSpcReduction="10000"/></a:bodyPr>');
+            }
+            return shapeXml;
+        });
+    },
+
+    // --- TRANSPOSITION ONLY ---
+    applyTranspositionToSlide(slideXml, originalText, transposedText, userAlign) {
+        const firstLine = originalText.split('\n').find(l => l.trim() !== '');
+        if (!firstLine) return slideXml;
+
+        const escapedSearch = this.escXml(firstLine.trim());
+
+        return slideXml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shapeXml) => {
+            if (shapeXml.includes(escapedSearch)) {
+                const rPrMatch = shapeXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
+                const style = rPrMatch ? rPrMatch[0] : '<a:rPr lang="en-US"/>';
+                const newContent = this.generatePptContent(transposedText, style, userAlign);
+
+                return shapeXml.replace(/<p:txBody>([\s\S]*?)<\/p:txBody>/, (txBodyXml) => {
+                    return txBodyXml.replace(/<a:p>[\s\S]*<\/a:p>/, newContent);
+                });
             }
             return shapeXml;
         });
@@ -553,7 +583,9 @@ const App = {
             for (const slide of this.originalSlides) {
                 const transposedData = this.transposeLine(slide.notes, semitones);
                 let slideXml = await zip.file(slide.path).async('string');
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', transposedData, userAlign);
+                
+                // Use the new transposition-specific function
+                slideXml = this.applyTranspositionToSlide(slideXml, slide.notes, transposedData, userAlign);
                 zip.file(slide.path, slideXml);
     
                 if (slide.notesPath) {
