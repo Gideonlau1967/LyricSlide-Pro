@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.5.2",
+    version: "2.6.0",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -17,19 +17,17 @@ const App = {
     },
 
     musical: {
-        keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
-        // This follows your fixed convention:
-        preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+    keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+    flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
+    preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
+
+    // Strict Regex: Captures chords but avoids common words
+    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
 
     originalSlides: [],   
     selectedTemplateFile: null, 
-
     
-    // IMPROVED REGEX: Fixed to capture the entire suffix group without overwriting
-    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
-
     init() {
         this.elements.generateBtn.addEventListener('click', () => this.generate());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
@@ -162,121 +160,49 @@ const App = {
             const zip = await JSZip.loadAsync(file);
             const slideFiles = Object.keys(zip.files)
                 .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
-                .sort((a, b) => {
-                    const numA = parseInt(a.match(/\d+/)[0]);
-                    const numB = parseInt(b.match(/\d+/)[0]);
-                    return numA - numB;
-                });
+                .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
     
             this.originalSlides = [];
             for (const path of slideFiles) {
-                const slideFileName = path.split('/').pop();
-                const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
-                const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
+                const slideName = path.split('/').pop();
+                const relsXml = await zip.file(`ppt/slides/_rels/${slideName}.rels`).async('string');
                 const notesPath = this.getNotesRelPath(relsXml);
                 
-                let slideData = []; // For visual lyrics
-                let notesText = ""; // For raw presenter notes
-    
+                let notesText = ""; 
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
                     let pMatch;
-    
                     while ((pMatch = pRegex.exec(notesXml)) !== null) {
-                        const pContent = pMatch[1];
-                        const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
-                        let pText = '';
-                        let match;
-                        
-                        while ((match = tagRegex.exec(pContent)) !== null) {
-                            if (match[0].startsWith('<a:br')) pText += '\n';
-                            else pText += this.unescXml(match[2] || '');
+                        const tagRegex = /<a:t[^>]*>(.*?)<\/a:t>|<a:br\/>/g;
+                        let m, pText = '';
+                        while ((m = tagRegex.exec(pMatch[1])) !== null) {
+                            pText += (m[0] === '<a:br/>') ? '\n' : this.unescXml(m[1] || '');
                         }
-                        
-                        // Add to slide preview array
-                        if (pText.trim()) {
-                            slideData.push({ text: pText, alignment: 'left' });
-                        }
-                        
-                        // ADD TO NOTES: Force a newline after every paragraph to prevent "CAnd"
-                        notesText += pText + '\n';
+                        notesText += pText + '\n'; // Function A: Break paragraphs
                     }
                 }
-    
-                this.originalSlides.push({
-                    slideContent: slideData,
-                    notes: notesText.trim()
-                });
+                this.originalSlides.push({ path, notesPath, notes: notesText.trim() });
             }
-            
-            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
-            this.updatePreview(0);
+            this.updatePreview(0); // Function B: Render
             this.hideLoading();
-        } catch (err) {
-            console.error(err);
-            alert("Error: " + err.message);
-            this.hideLoading();
-        }
+        } catch (e) { alert(e.message); this.hideLoading(); }
     },
 
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
-        const userAlign = document.getElementById('alignmentSelect').value;
         container.innerHTML = '';
-    
-        if (this.originalSlides.length === 0) {
-            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
-            return;
-        }
-    
-        this.originalSlides.forEach((slideObj, idx) => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'preview-card-wrapper';
+        this.originalSlides.forEach((slide, idx) => {
             const card = document.createElement('div');
             card.className = 'preview-card';
-            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>`;
-    
-            // --- SECTION 1: VISUAL SLIDE LYRICS ---
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'slide-content'; 
-            
-            slideObj.slideContent.forEach(para => {
-                const originalText = para.text;
-                const isMetadata = /©|Copyright|Words:|Music:|Lyrics:|Chris Tomlin|CCLI|DAYEG AMBASSADOR/i.test(originalText);
-                
-                if (originalText.trim() && !isMetadata) {
-                    const lineDiv = document.createElement('div');
-                    lineDiv.style.textAlign = (userAlign === 'l' ? 'left' : 'center'); 
-                    const transposed = this.transposeLine(originalText, semitones);
-                    // We use whitespace-pre-wrap here too to maintain chord spacing on slides
-                    lineDiv.className = "whitespace-pre-wrap"; 
-                    lineDiv.innerHTML = this.renderChordHTML(transposed);
-                    contentDiv.appendChild(lineDiv);
-                }
-            });
-            card.appendChild(contentDiv);
-    
-            // --- SECTION 2: PRESENTER NOTES ---
-            if (slideObj.notes) {
-                const notesDiv = document.createElement('div');
-                // 'whitespace-pre-wrap' keeps the line breaks and spaces.
-                // 'font-mono' ensures 'D' and 'G' take up the same width as lyrics.
-                notesDiv.className = 'mt-4 pt-2 border-t border-slate-200 text-left bg-slate-50/80 -mx-4 px-4 pb-2 whitespace-pre-wrap font-mono';
-                
-                const transposedNotes = this.transposeLine(slideObj.notes, semitones);
-                
-                notesDiv.innerHTML = `
-                    <div class="text-[9px] text-amber-600 font-bold uppercase mb-1 font-sans">Presenter Notes</div>
-                    <div class="text-[11px] text-slate-600 leading-snug">${this.renderChordHTML(transposedNotes)}</div>
-                `;
-                card.appendChild(notesDiv);
-            }
-    
-            wrapper.appendChild(card);
-            container.appendChild(wrapper);
+            // Function C/D: Transpose the "Source of Truth" (Notes) for display
+            const transposed = this.transposeLine(slide.notes, semitones);
+            card.innerHTML = `
+                <div class="text-[10px] text-slate-400 font-bold mb-2">SLIDE ${idx+1}</div>
+                <div class="whitespace-pre font-mono text-[11px] leading-snug">${this.renderChordHTML(transposed)}</div>
+            `;
+            container.appendChild(card);
         });
-        this.updateZoom();
     },
 
     unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
@@ -443,7 +369,7 @@ const App = {
                     let line = rawLines[i], nextLine = rawLines[i + 1];
                     
                     // Logic for Chord + Lyric pairs
-                    if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
+                    if (this.Line(line) && nextLine !== undefined && !this.Line(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
@@ -507,22 +433,19 @@ const App = {
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
         const chordStyle = this.getChordStyle(lyricStyle);
-        let ghostStyle = lyricStyle;
-        if (ghostStyle.endsWith('/>')) ghostStyle = ghostStyle.replace('/>', '></a:rPr>');
-        
-        // Ensure ghost text is invisible
-        ghostStyle = ghostStyle.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '').replace('<a:rPr', '<a:rPr><a:noFill/>');
+        let ghostStyle = lyricStyle.replace('<a:rPr', '<a:rPr><a:noFill/>').replace(/<a:solidFill>.*?<\/a:solidFill>/g, '');
         
         let runsXml = "";
         for (let i = 0; i < chordLine.length; i++) {
-            const chordChar = chordLine[i], lyricChar = lyricLine[i] || '\u00A0';
-            if (chordChar === ' ' || chordChar === '\u00A0') {
-                runsXml += `<a:r>${ghostStyle}<a:t xml:space="preserve">${this.escXml(lyricChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
+            const cChar = chordLine[i], lChar = lyricLine[i] || '\u00A0';
+            if (cChar === ' ' || cChar === '\u00A0') {
+                // Invisible lyric character to maintain spacing
+                runsXml += `<a:r>${ghostStyle}<a:t xml:space="preserve">${this.escXml(lChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             } else {
-                runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(chordChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
+                // Visible chord character
+                runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(cChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
-        // Spacing set to 50% (50000)
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr>${runsXml}</a:p>`;
     },
 
@@ -536,34 +459,56 @@ const App = {
     },
 
     isChordLine(line) {
-        if (!line || line.trim() === '') return false;
-        const words = line.trim().split(/\s+/);
-        const chords = line.match(this.chordRegex) || [];
-        return chords.length >= words.length * 0.6 || (chords.length > 0 && words.length <= 2);
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+    
+        // Protection: If it starts with a common lyric word followed by a standard word
+        if (/^(A|I|And|The|Then|He|She|We|They)\s+[a-zA-Z]{2,}/i.test(trimmed)) return false;
+    
+        // Bracketed chords always count
+        if (/\[[A-G][b#]?.*?\]/.test(trimmed)) return true;
+    
+        const words = trimmed.split(/\s+/);
+        const chords = trimmed.match(this.chordRegex) || [];
+    
+        // Ratio check: Chords must be > 50% of words OR short line with a chord
+        return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
-        if (!file) return alert('Select file.');
+        const userAlign = document.getElementById('alignmentSelect').value;
+    
+        if (!file || this.originalSlides.length === 0) return alert('Load a file first.');
+    
         try {
-            this.showLoading('Transposing...');
+            this.showLoading('Rebuilding PPT with Ghost-Text...');
             const zip = await JSZip.loadAsync(file);
-            const slides = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'));
-            for (const path of slides) {
-                let content = await zip.file(path).async('string');
-                content = this.transposeParagraphs(content, semitones);
-                zip.file(path, content);
+    
+            for (const slide of this.originalSlides) {
+                const transposedData = this.transposeLine(slide.notes, semitones);
+    
+                // Function F: Update Slide via Ghost Method (Step 7)
+                let slideXml = await zip.file(slide.path).async('string');
+                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', transposedData, userAlign);
+                zip.file(slide.path, slideXml);
+    
+                // Function E: Update Presenter Note (Step 6)
+                if (slide.notesPath) {
+                    let notesXml = await zip.file(slide.notesPath).async('string');
+                    const style = '<a:rPr lang="en-US" sz="1200"/>';
+                    const formatted = this.escXml(transposedData).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    notesXml = notesXml.replace(/<a:p>[\s\S]*?<\/a:p>/, `<a:p><a:r>${style}<a:t xml:space="preserve">${formatted}</a:t></a:r></a:p>`);
+                    zip.file(slide.notesPath, notesXml);
+                }
             }
-            const notes = Object.keys(zip.files).filter(k => k.startsWith('ppt/notesSlides/notesSlide') && k.endsWith('.xml'));
-            for (const path of notes) {
-                let nc = await zip.file(path).async('string');
-                nc = this.transposeParagraphs(nc, semitones);
-                zip.file(path, nc);
-            }
-            saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
+    
+            // Function G: Download (Step 8)
+            const finalBlob = await zip.generateAsync({ type: 'blob' });
+            saveAs(finalBlob, file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
-        } catch (err) { alert(err.message); this.hideLoading(); }
+        } catch (e) { alert(e.message); this.hideLoading(); }
     },
 
     transposeParagraphs(xml, semitones) {
@@ -645,62 +590,33 @@ const App = {
     },
 
     transposeLine(text, semitones) {
-        // If no transposition is needed or text is empty, return original
         if (semitones === 0 || !text) return text;
-    
         const lines = text.split('\n');
+    
         return lines.map(line => {
-            // IMPORTANT: We removed "if (!this.isChordLine(line)) return line;"
-            // This allows chords inside Presenter Notes (like "[G] Amazing Grace") 
-            // to be transposed even though the line is mostly lyrics.
+            if (!this.isChordLine(line)) return line; // Skip lyric lines (Step 5)
     
             let result = line;
             let offset = 0;
-            
-            // Find all chord matches in the current line
             const matches = [...line.matchAll(this.chordRegex)];
-            
-            // If no chords are found in this specific line, return it as is
-            if (matches.length === 0) return line;
     
             for (const m of matches) {
-                const originalFull = m[0];       // e.g., "C#m7/G"
-                const rootNote = m[1];           // e.g., "C#"
-                const suffix = m[2] || '';       // e.g., "m7"
-                const bassPart = m[3] || '';     // e.g., "/G"
-    
-                // 1. Shift the main root note
-                const newRoot = this.shiftNote(rootNote, semitones);
-    
-                // 2. Shift the bass note if it exists (e.g., the "G" in "C/G")
-                let newBass = '';
-                if (bassPart) {
-                    const bassNote = bassPart.substring(1); // Remove the "/"
-                    newBass = '/' + this.shiftNote(bassNote, semitones);
-                }
+                const originalFull = m[0];
+                const newRoot = this.shiftNote(m[1], semitones);
+                const suffix = m[2] || '';
+                let newBass = m[3] ? '/' + this.shiftNote(m[3].substring(1), semitones) : '';
     
                 const newChord = newRoot + suffix + newBass;
-    
-                // 3. Calculate position with current offset (offset changes as string length changes)
                 const position = m.index + offset;
                 const lengthDiff = newChord.length - originalFull.length;
     
                 let pre = result.substring(0, position);
                 let suf = result.substring(position + originalFull.length);
     
-                // 4. Alignment Logic (mainly for chords-over-lyrics on slides)
-                // If chord got longer and there is a space after it, remove a space
-                if (lengthDiff > 0 && suf.startsWith(' ')) {
-                    suf = suf.substring(1);
-                    offset--;
-                } 
-                // If chord got shorter, add spaces to keep the rest of the line aligned
-                else if (lengthDiff < 0) {
-                    suf = ' '.repeat(Math.abs(lengthDiff)) + suf;
-                    offset += Math.abs(lengthDiff);
-                }
+                // Alignment: Adjust spaces if chord length changes
+                if (lengthDiff > 0 && suf.startsWith(' ')) { suf = suf.substring(1); offset--; }
+                else if (lengthDiff < 0) { suf = ' '.repeat(Math.abs(lengthDiff)) + suf; offset += Math.abs(lengthDiff); }
     
-                // Construct the new line
                 result = pre + newChord + suf;
                 offset += lengthDiff;
             }
@@ -709,18 +625,11 @@ const App = {
     },
 
     shiftNote(note, semitones) {
-        // 1. Find the numeric index of the current note (0-11)
         let idx = this.musical.keys.indexOf(note);
         if (idx === -1) idx = this.musical.flats.indexOf(note);
-        
-        // If note not found (shouldn't happen with chordRegex), return as is
         if (idx === -1) return note;
-
-        // 2. Calculate the new index based on semitones
         let newIdx = (idx + semitones) % 12;
         if (newIdx < 0) newIdx += 12;
-
-        // 3. Always return the note from your fixed convention list
         return this.musical.preferred[newIdx];
     },
 
