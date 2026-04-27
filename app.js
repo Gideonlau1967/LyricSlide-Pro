@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.7.0 (Combined Hybrid Engine) */
 
 const App = {
-    version: "2.7.0 Hybrid Engine",
+    version: "2.7.0 Title Fixed",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -29,8 +29,8 @@ const App = {
     selectedTemplateFile: null, 
     
     init() {
-        if (this.elements.generateBtn) {
-            this.elements.generateBtn.addEventListener('click', () => this.generate());
+        if (this.elements.Btn) {
+            this.elements.Btn.addEventListener('click', () => this.());
         }
         
         if (this.elements.transposeBtn) {
@@ -253,12 +253,13 @@ const App = {
     // --- CORE GENERATION ---
     async generate() {
         const file = this.selectedTemplateFile;
-        const title = this.elements.songTitle.value || '';
-        const copyright = this.elements.copyrightInfo.value || '';
+        const titleText = this.elements.songTitle.value || '';
+        const lyricsText = (this.elements.lyricsInput.value || '').trim();
+        const copyrightText = this.elements.copyrightInfo.value || '';
         const userAlign = document.getElementById('alignmentSelect').value;
-        const lyrics = (this.elements.lyricsInput.value || '').trim();
-        if (!file || !lyrics) return alert('Select a template and input lyrics.');
-
+    
+        if (!file || !lyricsText) return alert('Select template and input lyrics.');
+    
         try {
             this.showLoading('Generating PPTX...');
             const zip = await JSZip.loadAsync(file);
@@ -271,17 +272,20 @@ const App = {
             const templateRelsXml = await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string');
             const templateNotesPath = this.getNotesRelPath(templateRelsXml);
             const templateNotesXml = templateNotesPath ? await zip.file(templateNotesPath).async('string') : null;
-
+    
             const splitRegex = /\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/;
-            let sections = ("\n" + lyrics).split(splitRegex).filter(s => s.trim() !== '');
+            let sections = ("\n" + lyricsText).split(splitRegex).filter(s => s.trim() !== '');
             const generated = [];
-
+    
+            // THE FIX: Bake Title and Copyright into a baseXml once
+            let baseXml = this.lockInStyleAndReplace(templateXml, '[Title]', titleText);
+            baseXml = this.lockInStyleAndReplace(baseXml, '[Copyright Info]', copyrightText);
+    
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
-                let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', title);
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
-                slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
-
+                // Create slide from the pre-titled baseXml
+                let slideXml = this.lockInStyleAndReplace(baseXml, '[Lyrics and Chords]', sectionText, userAlign);
+    
                 const name = `song_gen_${i + 1}.xml`;
                 zip.file(`ppt/slides/${name}`, slideXml);
                 
@@ -290,7 +294,6 @@ const App = {
                     const styleMatch = templateNotesXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                     const notesStyle = styleMatch ? styleMatch[0] : '<a:rPr lang="en-US" sz="1600"/>';
                     
-                    // Force bracketing in the generated notes
                     const noteLines = sectionText.split(/\n/).map(l => {
                         if (this.isChordLine(l)) return l.replace(this.chordRegex, m => `[${m.replace(/[\[\]]/g,'')}]`);
                         return l;
@@ -304,7 +307,7 @@ const App = {
                 }
             }
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
-            saveAs(await zip.generateAsync({ type: 'blob' }), `${(title || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
+            saveAs(await zip.generateAsync({ type: 'blob' }), `${(titleText || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
             this.hideLoading();
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
@@ -437,18 +440,25 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shape) => {
             if (!phRegex.test(shape)) return shape;
             const style = shape.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] || '<a:rPr lang="en-US"/>';
+            
             if (ph !== '[Lyrics and Chords]') {
-                const escaped = replacement.split('\n').map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                const escaped = (replacement || '').split('\n').map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                 return shape.replace(phRegex, escaped);
             }
+    
             let injected = `</a:t></a:r></a:p>`;
-            const rawLines = replacement.split('\n');
+            const rawLines = (replacement || '').split('\n');
             for (let i = 0; i < rawLines.length; i++) {
                 let line = rawLines[i], next = rawLines[i+1];
                 if (this.isChordLine(line) && next && !this.isChordLine(next) && !next.trim().startsWith('[')) {
                     const max = Math.max(line.length, next.length);
-                    injected += (align === 'ctr') ? this.makeGhostAlignmentLine(line.padEnd(max,' '), next.padEnd(max,' '), style, 'ctr') + this.makePptLine(next.padEnd(max,' '), style, 'ctr') 
-                                                : this.makePptLine(line, this.getChordStyle(style), 'l') + this.makePptLine(next, style, 'l');
+                    if (align === 'ctr') {
+                        injected += this.makeGhostAlignmentLine(line.padEnd(max,' '), next.padEnd(max,' '), style, 'ctr');
+                        injected += this.makePptLine(next.padEnd(max,' '), style, 'ctr');
+                    } else {
+                        injected += this.makePptLine(line, this.getChordStyle(style), 'l');
+                        injectedXml += this.makePptLine(next, style, 'l');
+                    }
                     i++;
                 } else {
                     const text = line.trim(), isTag = text.startsWith('[') && text.endsWith(']');
