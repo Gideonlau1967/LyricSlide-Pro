@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.6.5 */
 
 const App = {
-    version: "2.6.5 Remove Trailing Space",
+    version: "2.6.5 Separate Functions",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
