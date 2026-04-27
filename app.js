@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.6.2",
+    version: "2.6.5",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -23,13 +23,13 @@ const App = {
     },
 
     // Strict Regex: Captures chords but avoids common words
-    chordRegex: /\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?(?=\s|$|[\(\)\[\]\s,])/g,
+    chordRegex: /(?:\[)?\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?\b(?:\])?/g,
 
     originalSlides: [],   
     selectedTemplateFile: null, 
     
     init() {
-        this.elements.generateBtn.addEventListener('click', () => this.generate());
+        this.elements.Btn.addEventListener('click', () => this.());
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
         document.getElementById('alignmentSelect').addEventListener('change', () => {
@@ -160,33 +160,64 @@ const App = {
             const zip = await JSZip.loadAsync(file);
             const slideFiles = Object.keys(zip.files)
                 .filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml'))
-                .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
+                .sort((a, b) => {
+                    const numA = parseInt(a.match(/\d+/)[0]);
+                    const numB = parseInt(b.match(/\d+/)[0]);
+                    return numA - numB;
+                });
     
             this.originalSlides = [];
             for (const path of slideFiles) {
-                const slideName = path.split('/').pop();
-                const relsXml = await zip.file(`ppt/slides/_rels/${slideName}.rels`).async('string');
+                const slideFileName = path.split('/').pop();
+                const relsPath = `ppt/slides/_rels/${slideFileName}.rels`;
+                const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
                 const notesPath = this.getNotesRelPath(relsXml);
                 
+                let slideData = []; 
                 let notesText = ""; 
+    
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
-                    // Regex to find each paragraph block
-                    const paragraphs = notesXml.match(/<a:p>([\s\S]*?)<\/a:p>/g) || [];
-                    
-                    notesText = paragraphs.map(p => {
-                        return p.replace(/<a:br\/>/g, "\n")              // Handle soft breaks
-                                .replace(/<a:t[^>]*>(.*?)<\/a:t>/g, (m, t) => this.unescXml(t)) // Get text
-                                .replace(/<[^>]+>/g, "");                // Strip XML tags
-                    }).join('\n'); // Ensure a NEWLINE between every paragraph
+                    // Match every paragraph
+                    const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
+                    let pMatch;
+    
+                    while ((pMatch = pRegex.exec(notesXml)) !== null) {
+                        const pContent = pMatch[1];
+                        const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
+                        let pText = '';
+                        let match;
+                        
+                        while ((match = tagRegex.exec(pContent)) !== null) {
+                            if (match[0].startsWith('<a:br')) {
+                                pText += '\n';
+                            } else {
+                                // FIX: Convert non-breaking spaces (\u00A0) back to standard spaces
+                                // and ensure we aren't smashing runs together
+                                let val = this.unescXml(match[2] || '').replace(/\u00A0/g, ' ');
+                                pText += val;
+                            }
+                        }
+                        
+                        if (pText.trim()) {
+                            slideData.push({ text: pText, alignment: 'left' });
+                        }
+                        // Add a newline after every paragraph to maintain stacking
+                        notesText += pText + '\n';
+                    }
                 }
-                this.originalSlides.push({ path, notesPath, notes: notesText.trim() });
+    
+                this.originalSlides.push({
+                    slideContent: slideData,
+                    notes: notesText.trim()
+                });
             }
             
             document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
-            this.updatePreview(0); // Function B: Render Preview
+            this.updatePreview(0);
             this.hideLoading();
         } catch (err) {
+            console.error(err);
             alert("Error: " + err.message);
             this.hideLoading();
         }
@@ -328,6 +359,8 @@ const App = {
 
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
+                
+                // --- SLIDE GENERATION (Status Quo) ---
                 let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', title);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
@@ -336,13 +369,22 @@ const App = {
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
                 
+                // --- NOTES GENERATION (Bracketed) ---
                 if (templateNotesXml) {
                     const notesName = `notes_gen_${i + 1}.xml`;
                     const notesPath = `ppt/notesSlides/${notesName}`;
                     const styleMatch = templateNotesXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                     const notesStyle = styleMatch ? styleMatch[0] : '<a:rPr lang="en-US" sz="1600"/>';
-                    const formattedNotes = this.escXml(sectionText).replace(/\r?\n/g, `</a:t></a:r><a:br/><a:r>${notesStyle}<a:t xml:space="preserve">`);
+
+                    // Transform chords into [Chord] for notes only
+                    const bracketedNotesText = sectionText.replace(this.chordRegex, (m) => {
+                        const trimmed = m.trim().replace(/[\[\]]/g, ''); // Clean existing brackets
+                        return `[${trimmed}]`;
+                    });
+
+                    const formattedNotes = this.escXml(bracketedNotesText).replace(/\r?\n/g, `</a:t></a:r><a:br/><a:r>${notesStyle}<a:t xml:space="preserve">`);
                     const notesRegex = new RegExp(this.getPlaceholderRegexStr('[Presenter Note]'), 'gi');
+                    
                     newZip.file(notesPath, templateNotesXml.replace(notesRegex, formattedNotes));
                     newZip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`));
                     newZip.file(`ppt/notesSlides/_rels/${notesName}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/></Relationships>`);
