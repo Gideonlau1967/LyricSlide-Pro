@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.7.0 (Combined Hybrid Engine) */
 
 const App = {
-    version: "2.7.0 Hybrid Engine",
+    version: "2.7.0 Hybrid Engine Title",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
