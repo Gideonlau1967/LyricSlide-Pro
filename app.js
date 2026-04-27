@@ -29,7 +29,7 @@ const App = {
     selectedTemplateFile: null, 
     
     init() {
-        this.elements.Btn.addEventListener('click', () => this.());
+        this.elements.Btn.addEventListener('click', () => this.(generate));
         this.elements.transposeBtn.addEventListener('click', () => this.transpose());
         
         document.getElementById('alignmentSelect').addEventListener('change', () => {
