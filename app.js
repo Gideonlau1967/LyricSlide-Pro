@@ -1,4 +1,4 @@
-/* LyricSlide Pro */
+/* LyricSlide Pro - Version 2.6.5 */
 
 const App = {
     version: "2.6.5",
@@ -17,9 +17,9 @@ const App = {
     },
 
     musical: {
-    keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
-    flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
-    preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+        keys: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+        flats: ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'],
+        preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
     // Strict Regex: Captures chords but avoids common words
@@ -29,12 +29,21 @@ const App = {
     selectedTemplateFile: null, 
     
     init() {
-        this.elements.generateBtn.addEventListener('click', () => this.generate());
-        this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+        // Fix: Use generateBtn instead of Btn
+        if (this.elements.generateBtn) {
+            this.elements.generateBtn.addEventListener('click', () => this.generate());
+        }
         
-        document.getElementById('alignmentSelect').addEventListener('change', () => {
-            if (this.originalSlides.length > 0) this.updatePreview(0);
-        });
+        if (this.elements.transposeBtn) {
+            this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+        }
+        
+        const alignSelect = document.getElementById('alignmentSelect');
+        if (alignSelect) {
+            alignSelect.addEventListener('change', () => {
+                if (this.originalSlides.length > 0) this.updatePreview(0);
+            });
+        }
 
         this.theme.init();
         this.loadDefaultTemplates(); 
@@ -132,11 +141,13 @@ const App = {
 
     updateZoom(val) {
         if (val === undefined) val = document.getElementById('zoomSlider').value;
-        document.getElementById('zoomVal').textContent = val + '%';
+        const zoomValEl = document.getElementById('zoomVal');
+        if (zoomValEl) zoomValEl.textContent = val + '%';
         const scale = val / 100;
-        const contents = document.getElementsByClassName('slide-content');
+        const contents = document.getElementsByClassName('preview-card');
         for(let content of contents) {
             content.style.transform = `scale(${scale})`;
+            content.style.transformOrigin = 'top center';
         }
     },
 
@@ -173,12 +184,9 @@ const App = {
                 const relsXml = zip.file(relsPath) ? await zip.file(relsPath).async('string') : null;
                 const notesPath = this.getNotesRelPath(relsXml);
                 
-                let slideData = []; 
                 let notesText = ""; 
-    
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
-                    // Match every paragraph
                     const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
                     let pMatch;
     
@@ -187,28 +195,21 @@ const App = {
                         const tagRegex = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g;
                         let pText = '';
                         let match;
-                        
                         while ((match = tagRegex.exec(pContent)) !== null) {
                             if (match[0].startsWith('<a:br')) {
                                 pText += '\n';
                             } else {
-                                // FIX: Convert non-breaking spaces (\u00A0) back to standard spaces
-                                // and ensure we aren't smashing runs together
                                 let val = this.unescXml(match[2] || '').replace(/\u00A0/g, ' ');
                                 pText += val;
                             }
                         }
-                        
-                        if (pText.trim()) {
-                            slideData.push({ text: pText, alignment: 'left' });
-                        }
-                        // Add a newline after every paragraph to maintain stacking
                         notesText += pText + '\n';
                     }
                 }
     
                 this.originalSlides.push({
-                    slideContent: slideData,
+                    path: path,
+                    notesPath: notesPath,
                     notes: notesText.trim()
                 });
             }
@@ -218,7 +219,7 @@ const App = {
             this.hideLoading();
         } catch (err) {
             console.error(err);
-            alert("Error: " + err.message);
+            alert("Error loading file: " + err.message);
             this.hideLoading();
         }
     },
@@ -238,7 +239,6 @@ const App = {
             const card = document.createElement('div');
             card.className = 'preview-card';
             
-            // Function C/D: Dynamic Transpose in Preview
             const transposedText = this.transposeLine(slide.notes, semitones);
     
             card.innerHTML = `
@@ -249,6 +249,7 @@ const App = {
             wrapper.appendChild(card);
             container.appendChild(wrapper);
         });
+        this.updateZoom();
     },
 
     unescXml(s) { return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'"); },
@@ -326,6 +327,12 @@ const App = {
         document.getElementById('selectedTemplateName').textContent = item.name;
     },
 
+    clearTemplate() {
+        this.selectedTemplateFile = null;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        document.getElementById('selectedTemplateInfo').classList.add('hidden');
+    },
+
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
@@ -360,7 +367,6 @@ const App = {
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
                 
-                // --- SLIDE GENERATION (Status Quo) ---
                 let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', title);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
@@ -369,16 +375,14 @@ const App = {
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
                 
-                // --- NOTES GENERATION (Bracketed) ---
                 if (templateNotesXml) {
                     const notesName = `notes_gen_${i + 1}.xml`;
                     const notesPath = `ppt/notesSlides/${notesName}`;
                     const styleMatch = templateNotesXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                     const notesStyle = styleMatch ? styleMatch[0] : '<a:rPr lang="en-US" sz="1600"/>';
 
-                    // Transform chords into [Chord] for notes only
                     const bracketedNotesText = sectionText.replace(this.chordRegex, (m) => {
-                        const trimmed = m.trim().replace(/[\[\]]/g, ''); // Clean existing brackets
+                        const trimmed = m.trim().replace(/[\[\]]/g, ''); 
                         return `[${trimmed}]`;
                     });
 
@@ -425,8 +429,7 @@ const App = {
                 for (let i = 0; i < rawLines.length; i++) {
                     let line = rawLines[i], nextLine = rawLines[i + 1];
                     
-                    // Logic for Chord + Lyric pairs
-                    if (this.transposeLine(line) && nextLine !== undefined && !this.transposeLine(nextLine) && !nextLine.trim().startsWith('[')) {
+                    if (this.isChordLine(line) && nextLine !== undefined && !this.isChordLine(nextLine) && !nextLine.trim().startsWith('[')) {
                         if (isCenter) {
                             const maxLen = Math.max(line.length, nextLine.length);
                             injectedXml += this.makeGhostAlignmentLine(line.padEnd(maxLen, ' '), nextLine.padEnd(maxLen, ' '), style, 'ctr');
@@ -439,13 +442,10 @@ const App = {
                     } else {
                         const text = line.trim();
                         const alignTag = isCenter ? 'ctr' : 'l';
-                        
-                        // NEW: Detect section tags like [Verse], [Bridge]
                         const isSectionTag = text.startsWith('[') && text.endsWith(']');
                         let currentStyle = style;
                         
                         if (isSectionTag) {
-                            // Set font size to 20pt (2000 in PPT XML)
                             currentStyle = currentStyle.includes('sz=') 
                                 ? currentStyle.replace(/sz="\d+"/, 'sz="2000"') 
                                 : currentStyle.replace('<a:rPr', '<a:rPr sz="2000"');
@@ -469,37 +469,29 @@ const App = {
     getChordStyle(lyricStyle) {
         let s = lyricStyle;
         if (s.endsWith('/>')) s = s.replace('/>', '></a:rPr>');
-        
-        // 1. Set chord font size to 18pt
         if (s.includes('sz=')) {
             s = s.replace(/sz="\d+"/, 'sz="1800"');
         } else {
             s = s.replace('<a:rPr', '<a:rPr sz="1800"');
         }
-
-        // 2. Set chord color to Medium Grey (#808080)
         const greyFill = '<a:solidFill><a:srgbClr val="808080"/></a:solidFill>';
         if (s.includes('<a:solidFill>')) {
             s = s.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, greyFill);
         } else {
             s = s.replace('</a:rPr>', greyFill + '</a:rPr>');
         }
-
         return s;
     },
 
     makeGhostAlignmentLine(chordLine, lyricLine, lyricStyle, align) {
         const chordStyle = this.getChordStyle(lyricStyle);
         let ghostStyle = lyricStyle.replace('<a:rPr', '<a:rPr><a:noFill/>').replace(/<a:solidFill>.*?<\/a:solidFill>/g, '');
-        
         let runsXml = "";
         for (let i = 0; i < chordLine.length; i++) {
             const cChar = chordLine[i], lChar = lyricLine[i] || '\u00A0';
             if (cChar === ' ' || cChar === '\u00A0') {
-                // Invisible lyric character to maintain spacing
                 runsXml += `<a:r>${ghostStyle}<a:t xml:space="preserve">${this.escXml(lChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             } else {
-                // Visible chord character
                 runsXml += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(cChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
             }
         }
@@ -510,8 +502,6 @@ const App = {
         const escapedText = this.escXml(text).replace(/ /g, '\u00A0'); 
         let finalStyle = style;
         if (finalStyle.endsWith('/>')) finalStyle = finalStyle.replace('/>', '></a:rPr>');
-        
-        // Spacing set to 50% (50000)
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
@@ -519,17 +509,10 @@ const App = {
         if (!lineStr || typeof lineStr !== 'string') return false;
         const trimmed = lineStr.trim();
         if (trimmed === '') return false;
-    
-        // Protection: If it's a sentence starting with a common word, it's NOT a chord line
         if (/^(A|I|The|And|Then|They|We|He|She)\s+[a-zA-Z]{2,}/i.test(trimmed)) return false;
-    
-        // Headers/Sections are always processed as chord-style lines
         if (trimmed.startsWith('[') && trimmed.includes(']')) return true;
-    
         const words = trimmed.split(/\s+/);
         const chords = trimmed.match(this.chordRegex) || [];
-    
-        // Decision: If >50% are chords OR it's a very short line with a chord
         return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
@@ -545,28 +528,20 @@ const App = {
             const zip = await JSZip.loadAsync(file);
     
             for (const slide of this.originalSlides) {
-                // Function D/E: Transpose the "Source of Truth"
                 const transposedData = this.transposeLine(slide.notes, semitones);
-    
-                // Function F: Update the Slide via Ghost-Text (Step 7)
                 let slideXml = await zip.file(slide.path).async('string');
-                // Re-use your lockInStyleAndReplace logic which handles ghost-alignment
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', transposedData, userAlign);
                 zip.file(slide.path, slideXml);
     
-                // Function E: Update the Presenter Notes (Step 6)
                 if (slide.notesPath) {
                     let notesXml = await zip.file(slide.notesPath).async('string');
                     const style = '<a:rPr lang="en-US" sz="1200"/>';
                     const formatted = this.escXml(transposedData).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
-                    
-                    // Replace the existing text block in the note
                     notesXml = notesXml.replace(/<a:p>[\s\S]*?<\/a:p>/, `<a:p><a:r>${style}<a:t xml:space="preserve">${formatted}</a:t></a:r></a:p>`);
                     zip.file(slide.notesPath, notesXml);
                 }
             }
     
-            // Function G: Download
             const finalBlob = await zip.generateAsync({ type: 'blob' });
             saveAs(finalBlob, file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
@@ -576,93 +551,12 @@ const App = {
         }
     },
 
-    transposeParagraphs(xml, semitones) {
-        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
-            let logicLine = ""; 
-            let characterMetadata = []; // Stores { isGhost: bool, originalChar: string, style: string }
-
-            const runRegex = /<a:r>([\s\S]*?)<\/a:r>|<a:br\/>/g;
-            let m;
-            
-            while ((m = runRegex.exec(pXml)) !== null) {
-                if (m[0] === '<a:br/>') {
-                    logicLine += "\n";
-                    characterMetadata.push({ isBr: true });
-                    continue;
-                }
-                
-                const rPrMatch = m[1].match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
-                const rStyle = rPrMatch ? rPrMatch[0] : '<a:rPr/>';
-                const isGhost = rStyle.includes('<a:noFill/>');
-                
-                const tMatch = m[1].match(/<a:t[^>]*>(.*?)<\/a:t>/);
-                const text = tMatch ? this.unescXml(tMatch[1]) : "";
-
-                for (let char of text) {
-                    characterMetadata.push({
-                        isGhost: isGhost,
-                        originalChar: char,
-                        style: rStyle,
-                        isBr: false
-                    });
-                    // If it's a ghost, we treat it as a space for the chord-detector
-                    logicLine += isGhost ? " " : char;
-                }
-            }
-
-            if (!logicLine.trim()) return matchFull;
-
-            const transposedLogic = this.transposeLine(logicLine, semitones);
-            if (transposedLogic === logicLine) return matchFull;
-
-            // RECONSTRUCTION
-            const pPrMatch = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/);
-            const pPr = pPrMatch ? pPrMatch[0] : '';
-            const pTagMatch = matchFull.match(/^<a:p[^>]*>/);
-            const pTagOpen = pTagMatch ? pTagMatch[0] : '<a:p>';
-
-            let newRuns = "";
-            let metaIdx = 0;
-
-            for (let i = 0; i < transposedLogic.length; i++) {
-                const newChar = transposedLogic[i];
-                
-                if (newChar === "\n") {
-                    newRuns += "<a:br/>";
-                    // Skip the newline in metadata
-                    while(metaIdx < characterMetadata.length && !characterMetadata[metaIdx].isBr) metaIdx++;
-                    metaIdx++; 
-                    continue;
-                }
-
-                const meta = characterMetadata[metaIdx] || { isGhost: false, style: '<a:rPr sz="1800"/>' };
-
-                if (meta.isGhost && newChar === " ") {
-                    // This position was a ghost character (lyric) and remains a space in the chord line
-                    // We must use the original style (Large) to keep alignment
-                    newRuns += `<a:r>${meta.style}<a:t xml:space="preserve">${this.escXml(meta.originalChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
-                } else {
-                    // This is a visible chord character
-                    // We force the Chord Style (18pt)
-                    const chordStyle = this.getChordStyle(meta.style).replace('<a:noFill/>', ''); 
-                    newRuns += `<a:r>${chordStyle}<a:t xml:space="preserve">${this.escXml(newChar).replace(/ /g, '\u00A0')}</a:t></a:r>`;
-                }
-                metaIdx++;
-            }
-
-            return `${pTagOpen}${pPr}${newRuns}</a:p>`;
-        });
-    },
-
-    transposeLine(textBlock, semitones) {
+    transposeLine(textBlock, semitones = 0) {
         if (semitones === 0 || !textBlock) return textBlock;
     
         const linesArray = textBlock.split('\n');
         const transposedArray = linesArray.map(currentLine => {
-            // Step 5: Only transpose if the detector says it's a chord line
-            if (!this.isChordLine(currentLine)) {
-                return currentLine; 
-            }
+            if (!this.isChordLine(currentLine)) return currentLine; 
     
             let result = currentLine;
             let offset = 0;
@@ -681,7 +575,6 @@ const App = {
                 let pre = result.substring(0, position);
                 let suf = result.substring(position + originalFull.length);
     
-                // Alignment: adjust spaces if chord grew or shrunk
                 if (lengthDiff > 0 && suf.startsWith(' ')) {
                     suf = suf.substring(1);
                     offset--;
@@ -689,13 +582,11 @@ const App = {
                     suf = ' '.repeat(Math.abs(lengthDiff)) + suf;
                     offset += Math.abs(lengthDiff);
                 }
-    
                 result = pre + newChord + suf;
                 offset += lengthDiff;
             }
             return result;
         });
-    
         return transposedArray.join('\n');
     },
 
@@ -737,4 +628,5 @@ const App = {
     }
 };
 
+// Initialize the app on load
 App.init();
