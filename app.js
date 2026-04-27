@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.7.0 (Hybrid Engine) */
 
 const App = {
-    version: "2.7.0 Hybrid Engine Title Fixed",
+    version: "2.7.0 Hybrid Engine",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -22,7 +22,7 @@ const App = {
         preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    // Robust Regex: Matches chords with optional brackets [G] or plain G
+    // Strict Regex: Captures chords with or without brackets
     chordRegex: /(?:\[)?\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?\b(?:\])?/g,
 
     originalSlides: [],   
@@ -96,6 +96,7 @@ const App = {
         }
     },
 
+    // --- VIEW MANAGEMENT ---
     setMode(mode) {
         const isGen = mode === 'gen';
         document.getElementById('modeGen').classList.toggle('active', isGen);
@@ -182,7 +183,7 @@ const App = {
         this.updateZoom();
     },
 
-    // --- CORE GENERATION ---
+    // --- CORE GENERATION (Version A Style) ---
     async generate() {
         const file = this.selectedTemplateFile;
         const titleText = this.elements.songTitle.value || '';
@@ -190,7 +191,7 @@ const App = {
         const copyrightText = this.elements.copyrightInfo.value || '';
         const userAlign = document.getElementById('alignmentSelect').value;
 
-        if (!file || !lyricsText) return alert('Select template and input lyrics.');
+        if (!file || !lyricsText) return alert('Select a template and input lyrics.');
 
         try {
             this.showLoading('Generating PPTX...');
@@ -209,12 +210,14 @@ const App = {
             let sections = ("\n" + lyricsText).split(splitRegex).filter(s => s.trim() !== '');
             const generated = [];
 
-            // THE TITLE FIX: Process metadata ONCE into a baseXml
+            // 1. Pre-process template for fixed metadata (FIX: Updates Title/Copyright once)
             let baseXml = this.lockInStyleAndReplace(templateXml, '[Title]', titleText);
             baseXml = this.lockInStyleAndReplace(baseXml, '[Copyright Info]', copyrightText);
 
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
+                
+                // 2. Add specific lyrics for this slide
                 let slideXml = this.lockInStyleAndReplace(baseXml, '[Lyrics and Chords]', sectionText, userAlign);
 
                 const name = `song_gen_${i + 1}.xml`;
@@ -235,9 +238,6 @@ const App = {
                     zip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`));
                     zip.file(`ppt/notesSlides/_rels/${notesName}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/></Relationships>`);
                     generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name });
-                } else {
-                    zip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml);
-                    generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name });
                 }
             }
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
@@ -246,7 +246,7 @@ const App = {
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
-    // --- HYBRID TRANSPOSITION ENGINE ---
+    // --- TRANSPOSITION ENGINE (Combined Logic) ---
     async transpose() {
         const file = this.elements.transFileInput.files[0];
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
@@ -257,12 +257,12 @@ const App = {
             const zip = await JSZip.loadAsync(file);
 
             for (const slide of this.originalSlides) {
-                // 1. VER B Logic: Character Surgery on Slide XML
+                // 1. Transpose Slide XML using Version B Logic (Character-Surgery)
                 let slideXml = await zip.file(slide.path).async('string');
                 slideXml = this.transposeParagraphs(slideXml, semitones);
                 zip.file(slide.path, slideXml);
 
-                // 2. VER A Logic: Clean replace the Notes XML
+                // 2. Transpose Notes XML using Version A Logic (Clean Overwrite)
                 if (slide.notesPath) {
                     const transposedNotes = this.transposeLine(slide.notes, semitones);
                     let notesXml = await zip.file(slide.notesPath).async('string');
@@ -277,6 +277,7 @@ const App = {
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
+    // --- VERSION B: CHARACTER-LEVEL SURGERY ---
     transposeParagraphs(xml, semitones) {
         return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
             let logicLine = ""; let charMeta = []; 
@@ -335,7 +336,6 @@ const App = {
         }).join('\n');
     },
 
-    // --- HELPERS ---
     shiftNote(note, semitones) {
         let idx = this.musical.keys.indexOf(note);
         if (idx === -1) idx = this.musical.flats.indexOf(note);
@@ -353,6 +353,7 @@ const App = {
         return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
+    // --- SHARED HELPERS ---
     getChordStyle(lyricStyle) {
         let s = lyricStyle.includes('sz=') ? lyricStyle.replace(/sz="\d+"/, 'sz="1800"') : lyricStyle.replace('<a:rPr', '<a:rPr sz="1800"');
         const greyFill = '<a:solidFill><a:srgbClr val="808080"/></a:solidFill>';
@@ -364,12 +365,10 @@ const App = {
         return xml.replace(/<p:sp>([\s\S]*?)<\/p:sp>/g, (shape) => {
             if (!phRegex.test(shape)) return shape;
             const style = shape.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] || '<a:rPr lang="en-US"/>';
-            
             if (ph !== '[Lyrics and Chords]') {
                 const escaped = (replacement || '').split('\n').map(l => this.escXml(l)).join(`</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
                 return shape.replace(phRegex, escaped);
             }
-
             let injected = `</a:t></a:r></a:p>`;
             const rawLines = (replacement || '').split('\n');
             for (let i = 0; i < rawLines.length; i++) {
@@ -433,20 +432,6 @@ const App = {
             }));
             this.renderTemplateGallery(entries);
         } catch (e) { document.getElementById('templateGallery').innerHTML = `<div class="text-center py-8 text-slate-400 italic">Template library unavailable.</div>`; }
-    },
-    renderTemplateGallery(entries) {
-        const gallery = document.getElementById('templateGallery'); gallery.innerHTML = '';
-        const grid = document.createElement('div'); grid.className = 'template-grid';
-        entries.forEach(entry => {
-            const card = document.createElement('div'); card.className = 'template-card';
-            const img = document.createElement('img'); img.className = 'template-thumb'; img.src = entry.name.replace(/\.pptx$/i, '.png');
-            img.addEventListener('error', () => { const ph = document.createElement('div'); ph.className = 'template-thumb-placeholder'; ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>'; img.replaceWith(ph); });
-            const nameDiv = document.createElement('div'); nameDiv.className = 'template-card-name'; nameDiv.textContent = entry.name.replace(/\.pptx$/i, '');
-            card.appendChild(img); card.appendChild(nameDiv);
-            card.addEventListener('click', async () => { const file = await entry.getFile(); this.selectTemplate({ name: entry.name, file }, card); });
-            grid.appendChild(card);
-        });
-        gallery.appendChild(grid);
     }
 };
 
