@@ -1,7 +1,7 @@
 /* LyricSlide Pro */
 
 const App = {
-    version: "2.6.1",
+    version: "2.6.2",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -171,37 +171,52 @@ const App = {
                 let notesText = ""; 
                 if (notesPath && zip.file(notesPath)) {
                     const notesXml = await zip.file(notesPath).async('string');
-                    const pRegex = /<a:p>([\s\S]*?)<\/a:p>/g;
-                    let pMatch;
-                    while ((pMatch = pRegex.exec(notesXml)) !== null) {
-                        const tagRegex = /<a:t[^>]*>(.*?)<\/a:t>|<a:br\/>/g;
-                        let m, pText = '';
-                        while ((m = tagRegex.exec(pMatch[1])) !== null) {
-                            pText += (m[0] === '<a:br/>') ? '\n' : this.unescXml(m[1] || '');
-                        }
-                        notesText += pText + '\n'; // Function A: Break paragraphs
-                    }
+                    // Regex to find each paragraph block
+                    const paragraphs = notesXml.match(/<a:p>([\s\S]*?)<\/a:p>/g) || [];
+                    
+                    notesText = paragraphs.map(p => {
+                        return p.replace(/<a:br\/>/g, "\n")              // Handle soft breaks
+                                .replace(/<a:t[^>]*>(.*?)<\/a:t>/g, (m, t) => this.unescXml(t)) // Get text
+                                .replace(/<[^>]+>/g, "");                // Strip XML tags
+                    }).join('\n'); // Ensure a NEWLINE between every paragraph
                 }
                 this.originalSlides.push({ path, notesPath, notes: notesText.trim() });
             }
-            this.updatePreview(0); // Function B: Render
+            
+            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
+            this.updatePreview(0); // Function B: Render Preview
             this.hideLoading();
-        } catch (e) { alert(e.message); this.hideLoading(); }
+        } catch (err) {
+            alert("Error: " + err.message);
+            this.hideLoading();
+        }
     },
 
     updatePreview(semitones) {
         const container = document.getElementById('previewContainer');
         container.innerHTML = '';
+    
+        if (this.originalSlides.length === 0) {
+            container.innerHTML = '<div class="text-center py-20 text-slate-500 italic">No slides loaded.</div>';
+            return;
+        }
+    
         this.originalSlides.forEach((slide, idx) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'preview-card-wrapper';
             const card = document.createElement('div');
             card.className = 'preview-card';
-            // Function C/D: Transpose the "Source of Truth" (Notes) for display
-            const transposed = this.transposeLine(slide.notes, semitones);
+            
+            // Function C/D: Dynamic Transpose in Preview
+            const transposedText = this.transposeLine(slide.notes, semitones);
+    
             card.innerHTML = `
-                <div class="text-[10px] text-slate-400 font-bold mb-2">SLIDE ${idx+1}</div>
-                <div class="whitespace-pre font-mono text-[11px] leading-snug">${this.renderChordHTML(transposed)}</div>
+                <div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div>
+                <div class="whitespace-pre font-mono text-[11px] leading-snug text-left">${this.renderChordHTML(transposedText)}</div>
             `;
-            container.appendChild(card);
+    
+            wrapper.appendChild(card);
+            container.appendChild(wrapper);
         });
     },
 
@@ -458,20 +473,21 @@ const App = {
         return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc><a:buNone/></a:pPr><a:r>${finalStyle}<a:t xml:space="preserve">${escapedText}</a:t></a:r></a:p>`;
     },
 
-    isChordLine(line) {
-        const trimmed = line.trim();
-        if (!trimmed) return false;
+    isChordLine(lineStr) {
+        if (!lineStr || typeof lineStr !== 'string') return false;
+        const trimmed = lineStr.trim();
+        if (trimmed === '') return false;
     
-        // Protection: If it starts with a common lyric word followed by a standard word
-        if (/^(A|I|And|The|Then|He|She|We|They)\s+[a-zA-Z]{2,}/i.test(trimmed)) return false;
+        // Protection: If it's a sentence starting with a common word, it's NOT a chord line
+        if (/^(A|I|The|And|Then|They|We|He|She)\s+[a-zA-Z]{2,}/i.test(trimmed)) return false;
     
-        // Bracketed chords always count
-        if (/\[[A-G][b#]?.*?\]/.test(trimmed)) return true;
+        // Headers/Sections are always processed as chord-style lines
+        if (trimmed.startsWith('[') && trimmed.includes(']')) return true;
     
         const words = trimmed.split(/\s+/);
         const chords = trimmed.match(this.chordRegex) || [];
     
-        // Ratio check: Chords must be > 50% of words OR short line with a chord
+        // Decision: If >50% are chords OR it's a very short line with a chord
         return chords.length >= words.length * 0.5 || (chords.length > 0 && words.length <= 2);
     },
 
@@ -480,35 +496,42 @@ const App = {
         const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
         const userAlign = document.getElementById('alignmentSelect').value;
     
-        if (!file || this.originalSlides.length === 0) return alert('Load a file first.');
+        if (!file || this.originalSlides.length === 0) return alert('Select file and wait for load.');
     
         try {
-            this.showLoading('Rebuilding PPT with Ghost-Text...');
+            this.showLoading('Generating Transposed PPT...');
             const zip = await JSZip.loadAsync(file);
     
             for (const slide of this.originalSlides) {
+                // Function D/E: Transpose the "Source of Truth"
                 const transposedData = this.transposeLine(slide.notes, semitones);
     
-                // Function F: Update Slide via Ghost Method (Step 7)
+                // Function F: Update the Slide via Ghost-Text (Step 7)
                 let slideXml = await zip.file(slide.path).async('string');
+                // Re-use your lockInStyleAndReplace logic which handles ghost-alignment
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', transposedData, userAlign);
                 zip.file(slide.path, slideXml);
     
-                // Function E: Update Presenter Note (Step 6)
+                // Function E: Update the Presenter Notes (Step 6)
                 if (slide.notesPath) {
                     let notesXml = await zip.file(slide.notesPath).async('string');
                     const style = '<a:rPr lang="en-US" sz="1200"/>';
                     const formatted = this.escXml(transposedData).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    
+                    // Replace the existing text block in the note
                     notesXml = notesXml.replace(/<a:p>[\s\S]*?<\/a:p>/, `<a:p><a:r>${style}<a:t xml:space="preserve">${formatted}</a:t></a:r></a:p>`);
                     zip.file(slide.notesPath, notesXml);
                 }
             }
     
-            // Function G: Download (Step 8)
+            // Function G: Download
             const finalBlob = await zip.generateAsync({ type: 'blob' });
             saveAs(finalBlob, file.name.replace('.pptx', `_transposed.pptx`));
             this.hideLoading();
-        } catch (e) { alert(e.message); this.hideLoading(); }
+        } catch (err) {
+            alert("Transpose failed: " + err.message);
+            this.hideLoading();
+        }
     },
 
     transposeParagraphs(xml, semitones) {
@@ -589,16 +612,19 @@ const App = {
         });
     },
 
-    transposeLine(text, semitones) {
-        if (semitones === 0 || !text) return text;
-        const lines = text.split('\n');
+    transposeLine(textBlock, semitones) {
+        if (semitones === 0 || !textBlock) return textBlock;
     
-        return lines.map(line => {
-            if (!this.isChordLine(line)) return line; // Skip lyric lines (Step 5)
+        const linesArray = textBlock.split('\n');
+        const transposedArray = linesArray.map(currentLine => {
+            // Step 5: Only transpose if the detector says it's a chord line
+            if (!this.isChordLine(currentLine)) {
+                return currentLine; 
+            }
     
-            let result = line;
+            let result = currentLine;
             let offset = 0;
-            const matches = [...line.matchAll(this.chordRegex)];
+            const matches = [...currentLine.matchAll(this.chordRegex)];
     
             for (const m of matches) {
                 const originalFull = m[0];
@@ -613,15 +639,22 @@ const App = {
                 let pre = result.substring(0, position);
                 let suf = result.substring(position + originalFull.length);
     
-                // Alignment: Adjust spaces if chord length changes
-                if (lengthDiff > 0 && suf.startsWith(' ')) { suf = suf.substring(1); offset--; }
-                else if (lengthDiff < 0) { suf = ' '.repeat(Math.abs(lengthDiff)) + suf; offset += Math.abs(lengthDiff); }
+                // Alignment: adjust spaces if chord grew or shrunk
+                if (lengthDiff > 0 && suf.startsWith(' ')) {
+                    suf = suf.substring(1);
+                    offset--;
+                } else if (lengthDiff < 0) {
+                    suf = ' '.repeat(Math.abs(lengthDiff)) + suf;
+                    offset += Math.abs(lengthDiff);
+                }
     
                 result = pre + newChord + suf;
                 offset += lengthDiff;
             }
             return result;
-        }).join('\n');
+        });
+    
+        return transposedArray.join('\n');
     },
 
     shiftNote(note, semitones) {
