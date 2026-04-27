@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 2.6.5 */
 
 const App = {
-    version: "2.6.5",
+    version: "2.6.5 Fix Generate",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -367,6 +367,7 @@ const App = {
             for (let i = 0; i < sections.length; i++) {
                 const sectionText = sections[i].trim();
                 
+                // --- SLIDE GENERATION ---
                 let slideXml = this.lockInStyleAndReplace(templateXml, '[Title]', title);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
@@ -375,20 +376,38 @@ const App = {
                 const path = `ppt/slides/${name}`;
                 newZip.file(path, slideXml);
                 
+                // --- FIXED NOTES GENERATION ---
                 if (templateNotesXml) {
                     const notesName = `notes_gen_${i + 1}.xml`;
                     const notesPath = `ppt/notesSlides/${notesName}`;
+                    
+                    // 1. Process notes line-by-line to avoid bracketing lyric words like "A" or "I"
+                    const lines = sectionText.split(/\r?\n/);
+                    let noteLines = [];
+                    for (let line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed === "") continue; // Fix 1: Remove empty line spaces in notes
+
+                        if (this.isChordLine(line)) {
+                            // Only add brackets if the line is detected as a chord line
+                            const bracketed = line.replace(this.chordRegex, (m) => {
+                                const clean = m.trim().replace(/[\[\]]/g, '');
+                                return `[${clean}]`;
+                            });
+                            noteLines.push(bracketed);
+                        } else {
+                            // Fix 2: It's a lyric line, don't touch it
+                            noteLines.push(line);
+                        }
+                    }
+                    const processedNotesText = noteLines.join('\n');
+
+                    // 2. Format for PowerPoint XML
                     const styleMatch = templateNotesXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                     const notesStyle = styleMatch ? styleMatch[0] : '<a:rPr lang="en-US" sz="1600"/>';
-
-                    const bracketedNotesText = sectionText.replace(this.chordRegex, (m) => {
-                        const trimmed = m.trim().replace(/[\[\]]/g, ''); 
-                        return `[${trimmed}]`;
-                    });
-
-                    const formattedNotes = this.escXml(bracketedNotesText).replace(/\r?\n/g, `</a:t></a:r><a:br/><a:r>${notesStyle}<a:t xml:space="preserve">`);
-                    const notesRegex = new RegExp(this.getPlaceholderRegexStr('[Presenter Note]'), 'gi');
+                    const formattedNotes = this.escXml(processedNotesText).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${notesStyle}<a:t xml:space="preserve">`);
                     
+                    const notesRegex = new RegExp(this.getPlaceholderRegexStr('[Presenter Note]'), 'gi');
                     newZip.file(notesPath, templateNotesXml.replace(notesRegex, formattedNotes));
                     newZip.file(`ppt/slides/_rels/${name}.rels`, templateRelsXml.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`));
                     newZip.file(`ppt/notesSlides/_rels/${notesName}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/></Relationships>`);
