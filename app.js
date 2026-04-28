@@ -1,14 +1,14 @@
 /* 
-   LyricSlide Pro - Version 3.5.0 (ULTRA-STABLE FINAL MERGE)
+   LyricSlide Pro - Version 3.6.0 (STABLE PRODUCTION MERGE)
    --------------------------------------------------------
-   - FEATURES: 100% Restored from Version 3.0 (Surgery, Zoom, Preview).
-   - FIX 1: Registry Purge (Protects Layouts/Masters, deletes only Slide instances).
-   - FIX 2: Namespace Guard (createElementNS prevents xmlns="" corruption).
-   - FIX 3: Notes Master Link (Captures and preserves template Notes Master).
+   - 100% Logic from Version 3.0 (Transposition Engine, Zoom, Preview)
+   - FIXED: MS Office Repair Error (Surgical Registry Purge, Notes Master Link)
+   - FIXED: Corruption (Protects SlideLayouts and SlideMasters)
+   - FIXED: Schema Errors (Uses createElementNS to prevent xmlns="")
 */
 
 const App = {
-    version: "Version 3.5.0 Stable",
+    version: "Version 3.6.0 Stable",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -43,11 +43,10 @@ const App = {
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
-        const versionEl = document.getElementById('appVersion');
-        if (versionEl) versionEl.textContent = this.version;
+        const v = document.getElementById('appVersion'); if (v) v.textContent = this.version;
     },
 
-    // --- UI HELPERS (RESTORED FROM 3.0) ---
+    // --- UI HELPERS ---
     setMode(mode) {
         const isGen = mode === 'gen';
         document.getElementById('modeGen').classList.toggle('active', isGen);
@@ -64,18 +63,14 @@ const App = {
     },
 
     updateZoom(val) {
-        if (val === undefined) val = document.getElementById('zoomSlider').value;
-        const zoomValEl = document.getElementById('zoomVal');
-        if (zoomValEl) zoomValEl.textContent = val + '%';
-        const scale = val / 100;
+        if (val === undefined) val = document.getElementById('zoomSlider').value || 100;
+        const zv = document.getElementById('zoomVal'); if (zv) zv.textContent = val + '%';
+        const sc = val / 100;
         const contents = document.getElementsByClassName('preview-card');
-        for(let content of contents) {
-            content.style.transform = `scale(${scale})`;
-            content.style.transformOrigin = 'top center';
-        }
+        for(let c of contents) { c.style.transform = `scale(${sc})`; c.style.transformOrigin = 'top center'; }
     },
 
-    // --- THEME MANAGEMENT ---
+    // --- THEME ENGINE ---
     theme: {
         defaults: {
             '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc',
@@ -113,18 +108,19 @@ const App = {
         }
     },
 
-    // --- CORE GENERATION (REPAIR-PROOF FIXES) ---
+    // --- CORE GENERATION (REPAIR-PROOF MERGE) ---
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
         const copyright = this.elements.copyrightInfo.value || '';
         const userAlign = document.getElementById('alignmentSelect').value;
         const lyrics = (this.elements.lyricsInput.value || '').trim();
-        if (!file || !lyrics) return alert('Select a template and input lyrics.');
+        if (!file || !lyrics) return alert('Select template and lyrics.');
 
         try {
             this.showLoading('Generating PPTX...');
             const zip = await JSZip.loadAsync(file);
+            
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
             const contentTypesXml = await zip.file('[Content_Types].xml').async('string');
@@ -132,12 +128,13 @@ const App = {
             const slideIds = this.getSlideIds(presXml);
             const slideRels = this.getSlideRels(presRelsXml);
             const templateRelPath = slideRels[slideIds[0].rid];
+            
             const templateXml = await zip.file(`ppt/${templateRelPath}`).async('string');
             const templateRelsXml = await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string');
             const templateNotesPath = this.getNotesRelPath(templateRelsXml);
             const templateNotesXml = templateNotesPath ? await zip.file(templateNotesPath).async('string') : null;
 
-            // CAPTURE NOTES MASTER (CRITICAL FIX)
+            // CAPTURE NOTES MASTER DNA (To prevent Repair error)
             let notesMasterRel = "";
             if (templateNotesPath) {
                 const notesRelsFile = `ppt/notesSlides/_rels/${templateNotesPath.split('/').pop()}.rels`;
@@ -146,7 +143,7 @@ const App = {
                 notesMasterRel = nmMatch ? nmMatch[0] : "";
             }
 
-            // CLEANUP: Purge physical slides only (Protects Layouts/Masters)
+            // CLEANUP: Wipe physical slides only, protect layouts/masters
             Object.keys(zip.files).forEach(f => {
                 if (f.startsWith('ppt/slides/slide') || f.startsWith('ppt/notesSlides/notesSlide')) zip.remove(f);
             });
@@ -161,12 +158,13 @@ const App = {
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
 
-                const slideName = `song_gen_${i + 1}.xml`;
+                // Revert to Standard Naming for maximum compatibility
+                const slideName = `slide${i + 1}.xml`;
                 zip.file(`ppt/slides/${slideName}`, slideXml);
                 
                 let notesName = null;
                 if (templateNotesXml) {
-                    notesName = `notes_gen_${i + 1}.xml`;
+                    notesName = `notesSlide${i + 1}.xml`;
                     const style = '<a:rPr lang="en-US" sz="1600"/>';
                     const noteLines = sectionText.split(/\n/).map(l => this.isChordLine(l) ? l.replace(this.chordRegex, m => `[${m.replace(/[\[\]]/g,'')}]`) : l);
                     const formattedNotes = this.escXml(noteLines.join('\n')).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
@@ -200,12 +198,12 @@ const App = {
         const ns = "http://schemas.openxmlformats.org/package/2006/relationships";
         const slideType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
 
-        // Surgical Removal: Delete only Slide relationships
+        // Surgical Purge: Remove ONLY relationship objects that are Slides
         [...rNode.getElementsByTagName('Relationship')].forEach(n => {
             if (n.getAttribute('Type') === slideType) n.remove();
         });
 
-        // Use createElementNS to prevent xmlns="" corruption
+        // Use createElementNS to prevent xmlns="" corruption that causes repair prompts
         gen.forEach(s => {
             let e = doc.createElementNS(ns, 'Relationship');
             e.setAttribute('Id', s.rid);
@@ -332,7 +330,7 @@ const App = {
         return this.musical.preferred[newIdx];
     },
 
-    // --- PREVIEW ENGINE (RESTORED FROM 3.0) ---
+    // --- RESTORED PREVIEW ENGINE (FROM 3.0) ---
     async loadForPreview(file) {
         try {
             this.showLoading('Extracting notes...');
@@ -434,7 +432,7 @@ const App = {
             const names = await res.json();
             const entries = names.map(name => ({ name, getFile: async () => { const r = await fetch(`./${encodeURIComponent(name)}`); const blob = await r.blob(); return new File([blob], name, { type: blob.type }); } }));
             this.renderTemplateGallery(entries);
-        } catch (e) { gallery.innerHTML = `<div class="text-center py-8 text-slate-400 italic">Template library unavailable.</div>`; }
+        } catch (e) { gallery.innerHTML = `<div class="text-center py-8 text-slate-400 italic">Template unavailable.</div>`; }
     },
 
     renderTemplateGallery(entries) {
