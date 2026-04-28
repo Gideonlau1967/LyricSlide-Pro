@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 3.1.0 (Fixed OpenXML Engine) */
 
 const App = {
-    version: "Version 3.1",
+    version: "Version 3.1 MS Fixing",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
