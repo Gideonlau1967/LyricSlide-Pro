@@ -1,7 +1,7 @@
-/* LyricSlide Pro - Version 3.1.0 (Fixed OpenXML Engine) */
+/* LyricSlide Pro - Version 3.2.0 (Strict OpenXML Compliance) */
 
 const App = {
-    version: "Version 3.1 MS Fixing",
+    version: "Version 3.2",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -22,7 +22,6 @@ const App = {
         preferred: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
     },
 
-    // Robust Regex for chords
     chordRegex: /(?:\[)?\b([A-G][b#]?)((?:m|maj|dim|aug|sus|add|[245679]|11|13|[\(\)])*)(\/[A-G][b#]?)?\b(?:\])?/g,
 
     originalSlides: [],   
@@ -54,7 +53,6 @@ const App = {
         }
     },
 
-    // --- THEME MANAGEMENT ---
     theme: {
         defaults: {
             '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc',
@@ -248,7 +246,7 @@ const App = {
         document.getElementById('selectedTemplateName').textContent = item.name;
     },
 
-    // --- CORE GENERATION (With Step-by-Step Fixes for Repair Prompt) ---
+    // --- UPDATED CORE GENERATION (Version 3.2.0) ---
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
@@ -262,14 +260,11 @@ const App = {
             const zip = await JSZip.loadAsync(file);
             const presXml = await zip.file('ppt/presentation.xml').async('string');
             const presRelsXml = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
-            
             const slideIds = this.getSlideIds(presXml);
             const slideRels = this.getSlideRels(presRelsXml);
             const templateRelPath = slideRels[slideIds[0].rid];
-            
             const templateXml = await zip.file(`ppt/${templateRelPath}`).async('string');
-            const templateRelsXml = await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string');
-            const templateNotesPath = this.getNotesRelPath(templateRelsXml);
+            const templateNotesPath = this.getNotesRelPath(await zip.file(`ppt/slides/_rels/${templateRelPath.split('/').pop()}.rels`).async('string'));
             const templateNotesXml = templateNotesPath ? await zip.file(templateNotesPath).async('string') : null;
 
             const splitRegex = /\r?\n(?=\s*\[(?!(?:Title|Copyright Info|Lyrics and Chords)\])[^\]\n]+\])/;
@@ -282,17 +277,22 @@ const App = {
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Copyright Info]', copyright);
                 slideXml = this.lockInStyleAndReplace(slideXml, '[Lyrics and Chords]', sectionText, userAlign);
 
-                const name = `song_gen_${i + 1}.xml`;
-                zip.file(`ppt/slides/${name}`, slideXml);
+                const slideName = `slide${i + 1}.xml`;
+                const notesName = `notesSlide${i + 1}.xml`;
                 
-                // Ensure every slide has its own .rels file pointing to the Layout
-                let currentSlideRels = templateRelsXml;
+                zip.file(`ppt/slides/${slideName}`, slideXml);
+
+                // FIX: Standard Bidirectional Slide Relationship
+                let slideRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout2.xml"/>
+                        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/${notesName}"/>
+                    </Relationships>`;
+                zip.file(`ppt/slides/_rels/${slideName}.rels`, slideRels);
 
                 if (templateNotesXml) {
-                    const notesName = `notes_gen_${i + 1}.xml`;
                     const styleMatch = templateNotesXml.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/);
                     const notesStyle = styleMatch ? styleMatch[0] : '<a:rPr lang="en-US" sz="1600"/>';
-                    
                     const noteLines = sectionText.split(/\n/).map(l => {
                         if (this.isChordLine(l)) return l.replace(this.chordRegex, m => `[${m.replace(/[\[\]]/g,'')}]`);
                         return l;
@@ -300,27 +300,20 @@ const App = {
                     const formattedNotes = this.escXml(noteLines.join('\n')).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${notesStyle}<a:t xml:space="preserve">`);
                     
                     zip.file(`ppt/notesSlides/${notesName}`, templateNotesXml.replace(new RegExp(this.getPlaceholderRegexStr('[Presenter Note]'), 'gi'), formattedNotes));
-                    
-                    // Point slide to the NEW generated notes slide
-                    currentSlideRels = currentSlideRels.replace(/Target="..\/notesSlides\/notesSlide\d+\.xml"/, `Target="../notesSlides/${notesName}"`);
 
-                    // FIX: Step 2 - Point notes to notesMaster1.xml
-                    zip.file(`ppt/notesSlides/_rels/${notesName}.rels`, 
-                        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                    // FIX: Standard Bidirectional Notes Relationship
+                    let notesRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
                         <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${name}"/>
+                            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/${slideName}"/>
                             <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="../notesMasters/notesMaster1.xml"/>
-                        </Relationships>`);
+                        </Relationships>`;
+                    zip.file(`ppt/notesSlides/_rels/${notesName}.rels`, notesRels);
                 }
-                
-                zip.file(`ppt/slides/_rels/${name}.rels`, currentSlideRels);
-                generated.push({ id: 5000 + i, rid: `rIdGen${i + 1}`, name });
+                generated.push({ id: 256 + i, rid: `rId${i + 10}`, name: slideName });
             }
 
-            // FIX: Step 3 - Additive Registry (Preserves Theme and Dependencies)
+            // FIX: Namespace-aware registry updates
             this.syncPresentationRegistry(zip, presXml, presRelsXml, generated);
-            
-            // FIX: Step 1 - Content_Types Registry
             await this.updateContentTypes(zip, generated);
 
             saveAs(await zip.generateAsync({ type: 'blob' }), `${(title || 'Song').replace(/[^a-z0-9]/gi, '_')}.pptx`);
@@ -328,53 +321,51 @@ const App = {
         } catch (err) { alert(err.message); this.hideLoading(); }
     },
 
-    // Step 1 Helper
+    // FIX: Using createElementNS to prevent xmlns="" empty namespace bug
     async updateContentTypes(zip, generated) {
         const xmlString = await zip.file('[Content_Types].xml').async('string');
         let doc = new DOMParser().parseFromString(xmlString, 'application/xml');
         let types = doc.documentElement;
 
+        [...types.getElementsByTagName('Override')].forEach(n => {
+            if (n.getAttribute('PartName').includes('slide')) n.remove();
+        });
+
         generated.forEach(s => {
-            // Register Slide
-            let sNode = doc.createElement('Override');
+            let sNode = doc.createElementNS(types.namespaceURI, 'Override');
             sNode.setAttribute('PartName', `/ppt/slides/${s.name}`);
             sNode.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml');
             types.appendChild(sNode);
 
-            // Register Notes
-            let nNode = doc.createElement('Override');
-            nNode.setAttribute('PartName', `/ppt/notesSlides/notes_gen_${s.name.match(/\d+/)[0]}.xml`);
+            let nNode = doc.createElementNS(types.namespaceURI, 'Override');
+            nNode.setAttribute('PartName', `/ppt/notesSlides/notesSlide${s.name.match(/\d+/)[0]}.xml`);
             nNode.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml');
             types.appendChild(nNode);
         });
-
         zip.file('[Content_Types].xml', new XMLSerializer().serializeToString(doc));
     },
 
-    // Step 3 Helper
+    // FIX: Using createElementNS and thorough cleanup of old slide refs
     syncPresentationRegistry(zip, xml, rels, gen) {
-        zip.file('ppt/presentation.xml', xml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, '<p:sldIdLst>' + gen.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>'));
+        zip.file('ppt/presentation.xml', xml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, 
+            '<p:sldIdLst>' + gen.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>'));
         
         let doc = new DOMParser().parseFromString(rels, 'application/xml');
         let rNode = doc.documentElement;
         
-        // Remove only old slide relationships
-        const existingRels = [...rNode.getElementsByTagName('Relationship')];
-        existingRels.forEach(n => {
-            if (n.getAttribute('Type').endsWith('/relationships/slide')) {
-                n.remove();
-            }
+        [...rNode.getElementsByTagName('Relationship')].forEach(n => {
+            const type = n.getAttribute('Type');
+            const target = n.getAttribute('Target');
+            if (type.endsWith('/slide') || target.includes('slide')) n.remove();
         });
 
-        // Add new ones
         gen.forEach(s => { 
-            let e = doc.createElement('Relationship'); 
+            let e = doc.createElementNS(rNode.namespaceURI, 'Relationship'); 
             e.setAttribute('Id', s.rid); 
             e.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide'); 
             e.setAttribute('Target', `slides/${s.name}`); 
             rNode.appendChild(e); 
         });
-
         zip.file('ppt/_rels/presentation.xml.rels', new XMLSerializer().serializeToString(doc));
     },
 
@@ -389,12 +380,10 @@ const App = {
             const zip = await JSZip.loadAsync(file);
 
             for (const slide of this.originalSlides) {
-                // 1. Slide Transposition (Character-level style preservation)
                 let slideXml = await zip.file(slide.path).async('string');
                 slideXml = this.transposeParagraphs(slideXml, semitones);
                 zip.file(slide.path, slideXml);
 
-                // 2. Notes Transposition (Full overwrite)
                 if (slide.notesPath) {
                     const transposedNotes = this.transposeLine(slide.notes, semitones);
                     let notesXml = await zip.file(slide.notesPath).async('string');
@@ -510,43 +499,4 @@ const App = {
             }
             let injected = `</a:t></a:r></a:p>`;
             const rawLines = replacement.split('\n');
-            for (let i = 0; i < rawLines.length; i++) {
-                let line = rawLines[i], next = rawLines[i+1];
-                if (this.isChordLine(line) && next && !this.isChordLine(next) && !next.trim().startsWith('[')) {
-                    const max = Math.max(line.length, next.length);
-                    injected += (align === 'ctr') ? this.makeGhostAlignmentLine(line.padEnd(max,' '), next.padEnd(max,' '), style, 'ctr') + this.makePptLine(next.padEnd(max,' '), style, 'ctr') 
-                                                : this.makePptLine(line, this.getChordStyle(style), 'l') + this.makePptLine(next, style, 'l');
-                    i++;
-                } else {
-                    const text = line.trim(), isTag = text.startsWith('[') && text.endsWith(']');
-                    let curStyle = isTag ? style.replace(/sz="\d+"/, 'sz="2000"') : style;
-                    injected += text ? this.makePptLine(text, curStyle, align === 'ctr' ? 'ctr' : 'l') : `<a:p><a:pPr algn="${align === 'ctr' ? 'ctr' : 'l'}"/><a:r>${style}<a:t> </a:t></a:r></a:p>`;
-                }
-            }
-            return shape.replace(phRegex, injected + `<a:p><a:pPr algn="${align === 'ctr' ? 'ctr' : 'l'}"/><a:r>${style}<a:t xml:space="preserve">`)
-                        .replace('</a:bodyPr>', '<a:normAutofit fontScale="92000" lnSpcReduction="10000"/></a:bodyPr>');
-        });
-    },
-
-    makeGhostAlignmentLine(chord, lyric, style, align) {
-        let ghost = style.replace('<a:rPr', '<a:rPr><a:noFill/>').replace(/<a:solidFill>.*?<\/a:solidFill>/g, '');
-        let xml = "";
-        for (let i = 0; i < chord.length; i++) {
-            xml += (chord[i] === ' ') ? `<a:r>${ghost}<a:t xml:space="preserve">${this.escXml(lyric[i] || ' ')}</a:t></a:r>` 
-                                     : `<a:r>${this.getChordStyle(style)}<a:t xml:space="preserve">${this.escXml(chord[i])}</a:t></a:r>`;
-        }
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc></a:pPr>${xml}</a:p>`;
-    },
-
-    makePptLine(text, style, align) {
-        return `<a:p><a:pPr algn="${align}"><a:lnSpc><a:spcPct val="50000"/></a:lnSpc></a:pPr><a:r>${style}<a:t xml:space="preserve">${this.escXml(text)}</a:t></a:r></a:p>`;
-    },
-
-    getPlaceholderRegexStr(ph) { return '\\[' + ph.replace(/[\[\]]/g, '').split('').map(c => (c === ' ' ? '\\s+' : this.escRegex(c))).join('(?:<[^>]+>|\\s)*') + '\\]'; },
-    escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
-    getSlideIds(xml) { let ids = [], m, r = /<p:sldId[^>]+id="([^"]+)"[^>]+r:id="([^"]+)"/g; while (m = r.exec(xml)) ids.push({id: m[1], rid: m[2]}); return ids; },
-    getSlideRels(xml) { let rels = {}, m, r = /<Relationship[^>]+Id="([^"]+)"[^>]+Type="[^"]+slide"[^>]+Target="([^"]+)"/g; while (m = r.exec(xml)) rels[m[1]] = m[2]; return rels; },
-    getNotesRelPath(slideRelsXml) { const m = slideRelsXml?.match(/Relationship[^>]+Type="[^"]+notesSlide"[^>]+Target="..\/notesSlides\/(notesSlide\d+\.xml)"/); return m ? `ppt/notesSlides/${m[1]}` : null; }
-};
-
-App.init();
+            for (let i = 0; i < rawLines.leng
