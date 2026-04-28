@@ -1,10 +1,13 @@
 /* 
-   LyricSlide Pro - Version 3.2.1 (STABLE & REPAIR-PROOF)
-   Fix: Synchronized ID generation and registry purge to prevent ID Mismatches.
+   LyricSlide Pro - Version 3.3.0 (ULTRA-STABLE MERGED)
+   - FIXED: MS Office Repair Error (Hard Purge & Registry Sync)
+   - INCLUDED: Transposition Engine (Character-level Style Preservation)
+   - INCLUDED: Preview Extraction (Notes extraction & rendering)
+   - INCLUDED: All UI Controls (Zoom, Semitones, Mode Switching)
 */
 
 const App = {
-    version: "Version 3.2.1 Stable",
+    version: "Version 3.3.0 - Full Production",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
@@ -30,14 +33,48 @@ const App = {
     init() {
         if (this.elements.generateBtn) this.elements.generateBtn.addEventListener('click', () => this.generate());
         if (this.elements.transposeBtn) this.elements.transposeBtn.addEventListener('click', () => this.transpose());
+        
         const alignSelect = document.getElementById('alignmentSelect');
-        if (alignSelect) alignSelect.addEventListener('change', () => { if (this.originalSlides.length > 0) this.updatePreview(0); });
+        if (alignSelect) {
+            alignSelect.addEventListener('change', () => { if (this.originalSlides.length > 0) this.updatePreview(0); });
+        }
+
+        const zoomSlider = document.getElementById('zoomSlider');
+        if (zoomSlider) {
+            zoomSlider.addEventListener('input', (e) => this.updateZoom(e.target.value));
+        }
+
         this.theme.init();
         this.loadDefaultTemplates(); 
         window.LyricApp = this;
         const v = document.getElementById('appVersion'); if (v) v.textContent = this.version;
     },
 
+    // --- UI HELPERS ---
+    setMode(mode) {
+        const isGen = mode === 'gen';
+        document.getElementById('modeGen').classList.toggle('active', isGen);
+        document.getElementById('modeTrans').classList.toggle('active', !isGen);
+        document.getElementById('viewGen').classList.toggle('hidden', !isGen);
+        document.getElementById('viewTrans').classList.toggle('hidden', isGen);
+    },
+
+    async changeSemitones(delta) {
+        const current = parseInt(this.elements.semitoneDisplay.textContent) || 0;
+        const next = Math.max(-11, Math.min(11, current + delta));
+        this.elements.semitoneDisplay.textContent = (next > 0 ? '+' : '') + next;
+        if (this.originalSlides.length > 0) this.updatePreview(next);
+    },
+
+    updateZoom(val) {
+        if (val === undefined) val = document.getElementById('zoomSlider').value;
+        const zv = document.getElementById('zoomVal'); if (zv) zv.textContent = val + '%';
+        const sc = val / 100;
+        const contents = document.getElementsByClassName('preview-card');
+        for(let c of contents) { c.style.transform = `scale(${sc})`; c.style.transformOrigin = 'top center'; }
+    },
+
+    // --- THEME ENGINE ---
     theme: {
         defaults: {
             '--primary-color': '#334155', '--bg-start': '#f8fafc', '--bg-end': '#f8fafc',
@@ -75,21 +112,7 @@ const App = {
         }
     },
 
-    setMode(mode) {
-        const isGen = mode === 'gen';
-        document.getElementById('modeGen').classList.toggle('active', isGen);
-        document.getElementById('modeTrans').classList.toggle('active', !isGen);
-        document.getElementById('viewGen').classList.toggle('hidden', !isGen);
-        document.getElementById('viewTrans').classList.toggle('hidden', isGen);
-    },
-
-    async changeSemitones(delta) {
-        const current = parseInt(this.elements.semitoneDisplay.textContent) || 0;
-        const next = Math.max(-11, Math.min(11, current + delta));
-        this.elements.semitoneDisplay.textContent = (next > 0 ? '+' : '') + next;
-        if (this.originalSlides.length > 0) this.updatePreview(next);
-    },
-
+    // --- CORE GENERATION ENGINE (REPAIR-PROOF) ---
     async generate() {
         const file = this.selectedTemplateFile;
         const title = this.elements.songTitle.value || '';
@@ -115,7 +138,7 @@ const App = {
             const templateNotesPath = this.getNotesRelPath(templateRelsXml);
             const templateNotesXml = templateNotesPath ? await zip.file(templateNotesPath).async('string') : null;
 
-            // PURGE: Remove original template slide artifacts
+            // STABILITY FIX: Delete template slides to prevent Repair prompts
             Object.keys(zip.files).forEach(f => {
                 if (f.includes('ppt/slides/slide') || f.includes('ppt/notesSlides/notesSlide') || f.includes('ppt/slides/_rels/slide')) {
                     zip.remove(f);
@@ -158,6 +181,138 @@ const App = {
         } catch (err) { console.error(err); alert(err.message); this.hideLoading(); }
     },
 
+    // --- TRANSPOSITION ENGINE (SURGERY LOGIC) ---
+    async transpose() {
+        const file = this.elements.transFileInput.files[0];
+        const semitones = parseInt(this.elements.semitoneDisplay.textContent) || 0;
+        if (!file || this.originalSlides.length === 0) return alert('Load file first.');
+        try {
+            this.showLoading('Transposing...');
+            const zip = await JSZip.loadAsync(file);
+            for (const slide of this.originalSlides) {
+                let slideXml = await zip.file(slide.path).async('string');
+                slideXml = this.transposeParagraphs(slideXml, semitones);
+                zip.file(slide.path, slideXml);
+                if (slide.notesPath) {
+                    const transposedNotes = this.transposeLine(slide.notes, semitones);
+                    let notesXml = await zip.file(slide.notesPath).async('string');
+                    const style = '<a:rPr lang="en-US" sz="1200"/>';
+                    const formatted = this.escXml(transposedNotes).replace(/\n/g, `</a:t></a:r><a:br/><a:r>${style}<a:t xml:space="preserve">`);
+                    notesXml = notesXml.replace(/<a:p>[\s\S]*?<\/a:p>/, `<a:p><a:r>${style}<a:t xml:space="preserve">${formatted}</a:t></a:r></a:p>`);
+                    zip.file(slide.notesPath, notesXml);
+                }
+            }
+            saveAs(await zip.generateAsync({ type: 'blob' }), file.name.replace('.pptx', `_transposed.pptx`));
+            this.hideLoading();
+        } catch (err) { alert(err.message); this.hideLoading(); }
+    },
+
+    transposeParagraphs(xml, semitones) {
+        return xml.replace(/<a:p[^>]*>([\s\S]*?)<\/a:p>/g, (matchFull, pXml) => {
+            let logicLine = "", charMeta = []; 
+            const runRegex = /<a:r>([\s\S]*?)<\/a:r>|<a:br\/>/g;
+            let m;
+            while ((m = runRegex.exec(pXml)) !== null) {
+                if (m[0] === '<a:br/>') { logicLine += "\n"; charMeta.push({ isBr: true }); continue; }
+                const rStyle = m[1].match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/)?.[0] || '<a:rPr/>';
+                const text = this.unescXml(m[1].match(/<a:t[^>]*>(.*?)<\/a:t>/)?.[1] || "");
+                for (let char of text) { charMeta.push({ isGhost: rStyle.includes('<a:noFill/>'), originalChar: char, style: rStyle, isBr: false }); logicLine += rStyle.includes('<a:noFill/>') ? " " : char; }
+            }
+            if (!logicLine.trim()) return matchFull;
+            const transposedLogic = this.transposeLine(logicLine, semitones);
+            if (transposedLogic === logicLine) return matchFull;
+            const pPr = pXml.match(/<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/)?.[0] || '';
+            const pTagOpen = matchFull.match(/^<a:p[^>]*>/)?.[0] || '<a:p>';
+            let newRuns = "", metaIdx = 0;
+            for (let i = 0; i < transposedLogic.length; i++) {
+                const newChar = transposedLogic[i];
+                if (newChar === "\n") { newRuns += "<a:br/>"; while(metaIdx < charMeta.length && !charMeta[metaIdx].isBr) metaIdx++; metaIdx++; continue; }
+                const meta = charMeta[metaIdx] || { isGhost: false, style: '<a:rPr sz="1800"/>' };
+                if (meta.isGhost && newChar === " ") { newRuns += `<a:r>${meta.style}<a:t xml:space="preserve">${this.escXml(meta.originalChar).replace(/ /g, '\u00A0')}</a:t></a:r>`; }
+                else { newRuns += `<a:r>${this.getChordStyle(meta.style).replace('<a:noFill/>','')}<a:t xml:space="preserve">${this.escXml(newChar).replace(/ /g, '\u00A0')}</a:t></a:r>`; }
+                metaIdx++;
+            }
+            return `${pTagOpen}${pPr}${newRuns}</a:p>`;
+        });
+    },
+
+    transposeLine(text, semitones) {
+        if (semitones === 0) return text;
+        return text.split('\n').map(line => {
+            if (!this.isChordLine(line)) return line;
+            let result = line, offset = 0;
+            const matches = [...line.matchAll(this.chordRegex)];
+            for (const m of matches) {
+                const nr = this.shiftNote(m[1], semitones); 
+                const nb = m[3] ? '/' + this.shiftNote(m[3].substring(1), semitones) : '';
+                const nf = nr + (m[2] || '') + nb;
+                const p = m.index + offset, d = nf.length - m[0].length;
+                let pre = result.substring(0, p), suf = result.substring(p + m[0].length);
+                if (d > 0 && suf.startsWith(' ')) { suf = suf.substring(1); offset--; }
+                else if (d < 0) { suf = ' '.repeat(Math.abs(d)) + suf; offset += Math.abs(d); }
+                result = pre + nf + suf; offset += d;
+            }
+            return result;
+        }).join('\n');
+    },
+
+    shiftNote(note, semitones) {
+        let idx = this.musical.keys.indexOf(note);
+        if (idx === -1) idx = this.musical.flats.indexOf(note);
+        if (idx === -1) return note;
+        let nIdx = (idx + semitones) % 12;
+        if (nIdx < 0) nIdx += 12;
+        return this.musical.preferred[nIdx];
+    },
+
+    // --- PREVIEW ENGINE ---
+    async loadForPreview(file) {
+        try {
+            this.showLoading('Extracting notes...');
+            const zip = await JSZip.loadAsync(file);
+            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml')).sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
+            this.originalSlides = [];
+            for (const path of slideFiles) {
+                const sfn = path.split('/').pop();
+                const relsXml = zip.file(`ppt/slides/_rels/${sfn}.rels`) ? await zip.file(`ppt/slides/_rels/${sfn}.rels`).async('string') : null;
+                const notesPath = this.getNotesRelPath(relsXml);
+                let nt = ""; 
+                if (notesPath && zip.file(notesPath)) {
+                    const nx = await zip.file(notesPath).async('string');
+                    const pr = /<a:p>([\s\S]*?)<\/a:p>/g; let pm;
+                    while ((pm = pr.exec(nx)) !== null) {
+                        const tr = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g; let pt = ''; let m;
+                        while ((m = tr.exec(pm[1])) !== null) { if (m[0].startsWith('<a:br')) pt += '\n'; else pt += this.unescXml(m[2] || '').replace(/\u00A0/g, ' '); }
+                        nt += pt + '\n';
+                    }
+                }
+                this.originalSlides.push({ path, notesPath, notes: nt.trim() });
+            }
+            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
+            this.updatePreview(0);
+            this.hideLoading();
+        } catch (err) { alert(err.message); this.hideLoading(); }
+    },
+
+    updatePreview(semitones) {
+        const container = document.getElementById('previewContainer'); container.innerHTML = '';
+        if (this.originalSlides.length === 0) return;
+        this.originalSlides.forEach((slide, idx) => {
+            const wrapper = document.createElement('div'); wrapper.className = 'preview-card-wrapper';
+            const card = document.createElement('div'); card.className = 'preview-card';
+            const transText = this.transposeLine(slide.notes, semitones);
+            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div><div class="whitespace-pre font-mono text-[11px] leading-snug text-left">${this.renderChordHTML(transText)}</div>`;
+            wrapper.appendChild(card); container.appendChild(wrapper);
+        });
+        this.updateZoom();
+    },
+
+    renderChordHTML(text) {
+        let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return html.replace(this.chordRegex, '<span class="chord">$&</span>');
+    },
+
+    // --- PPTX STRUCTURAL HELPERS ---
     syncPresentationRegistry(zip, xml, rels, gen) {
         const sldIdList = '<p:sldIdLst>' + gen.map(s => `<p:sldId id="${s.id}" r:id="${s.rid}"/>`).join('') + '</p:sldIdLst>';
         zip.file('ppt/presentation.xml', xml.replace(/<p:sldIdLst>[\s\S]*?<\/p:sldIdLst>/, sldIdList));
@@ -255,62 +410,7 @@ const App = {
         return rs.includes('<a:solidFill>') ? rs.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, '<a:solidFill><a:srgbClr val="808080"/></a:solidFill>') : rs.replace('</a:rPr>', '<a:solidFill><a:srgbClr val="808080"/></a:solidFill></a:rPr>');
     },
 
-    async loadForPreview(file) {
-        try {
-            this.showLoading('Extracting notes...');
-            const zip = await JSZip.loadAsync(file);
-            const slideFiles = Object.keys(zip.files).filter(k => k.startsWith('ppt/slides/slide') && k.endsWith('.xml')).sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
-            this.originalSlides = [];
-            for (const path of slideFiles) {
-                const sfn = path.split('/').pop();
-                const relsXml = zip.file(`ppt/slides/_rels/${sfn}.rels`) ? await zip.file(`ppt/slides/_rels/${sfn}.rels`).async('string') : null;
-                const notesPath = this.getNotesRelPath(relsXml);
-                let nt = ""; 
-                if (notesPath && zip.file(notesPath)) {
-                    const nx = await zip.file(notesPath).async('string');
-                    const pr = /<a:p>([\s\S]*?)<\/a:p>/g; let pm;
-                    while ((pm = pr.exec(nx)) !== null) {
-                        const tr = /<(a:t|a:br)[^>]*>(.*?)<\/\1>|<a:br\/>/g; let pt = ''; let m;
-                        while ((m = tr.exec(pm[1])) !== null) { if (m[0].startsWith('<a:br')) pt += '\n'; else pt += this.unescXml(m[2] || '').replace(/\u00A0/g, ' '); }
-                        nt += pt + '\n';
-                    }
-                }
-                this.originalSlides.push({ path, notesPath, notes: nt.trim() });
-            }
-            document.getElementById('slideCount').textContent = `${this.originalSlides.length} Slides`;
-            this.updatePreview(0);
-            this.hideLoading();
-        } catch (err) { alert(err.message); this.hideLoading(); }
-    },
-
-    updatePreview(semitones) {
-        const container = document.getElementById('previewContainer'); container.innerHTML = '';
-        if (this.originalSlides.length === 0) return;
-        this.originalSlides.forEach((slide, idx) => {
-            const wrapper = document.createElement('div'); wrapper.className = 'preview-card-wrapper';
-            const card = document.createElement('div'); card.className = 'preview-card';
-            card.innerHTML = `<div class="text-[10px] text-slate-400 mb-2 uppercase font-black text-left">Slide ${idx + 1}</div><div class="whitespace-pre font-mono text-[11px] leading-snug text-left">${this.renderChordHTML(slide.notes)}</div>`;
-            wrapper.appendChild(card); container.appendChild(wrapper);
-        });
-        this.updateZoom();
-    },
-
-    renderChordHTML(text) {
-        let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        return html.replace(this.chordRegex, '<span class="chord">$&</span>');
-    },
-
-    updateZoom(val) {
-        if (val === undefined) val = document.getElementById('zoomSlider').value;
-        const zv = document.getElementById('zoomVal'); if (zv) zv.textContent = val + '%';
-        const sc = val / 100;
-        const contents = document.getElementsByClassName('preview-card');
-        for(let c of contents) { c.style.transform = `scale(${sc})`; c.style.transformOrigin = 'top center'; }
-    },
-
-    showLoading(text) { this.elements.loadingText.textContent = text; this.elements.loadingOverlay.style.display = 'flex'; },
-    hideLoading() { this.elements.loadingOverlay.style.display = 'none'; },
-
+    // --- TEMPLATE GALLERY ---
     async loadDefaultTemplates() {
         const gallery = document.getElementById('templateGallery');
         try {
@@ -338,4 +438,26 @@ const App = {
                 const ph = document.createElement('div'); ph.className = 'template-thumb-placeholder';
                 ph.innerHTML = '<i class="fas fa-file-powerpoint"></i>'; img.replaceWith(ph);
             });
-         
+            const nd = document.createElement('div'); nd.className = 'template-card-name'; nd.textContent = entry.name.replace(/\.pptx$/i, '');
+            card.appendChild(img); card.appendChild(nd);
+            card.addEventListener('click', async () => {
+                const file = await entry.getFile(); this.selectTemplate({ name: entry.name, file }, card);
+            });
+            grid.appendChild(card);
+        });
+        gallery.appendChild(grid);
+    },
+
+    selectTemplate(item, cardEl) {
+        this.selectedTemplateFile = item.file;
+        document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+        cardEl.classList.add('selected');
+        document.getElementById('selectedTemplateInfo').classList.remove('hidden');
+        document.getElementById('selectedTemplateName').textContent = item.name;
+    },
+
+    showLoading(text) { this.elements.loadingText.textContent = text; this.elements.loadingOverlay.style.display = 'flex'; },
+    hideLoading() { this.elements.loadingOverlay.style.display = 'none'; }
+};
+
+App.init();
