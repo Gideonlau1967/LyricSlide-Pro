@@ -1,7 +1,7 @@
 /* LyricSlide Pro - Version 3.4 (Auto-Repair Engine) */
 
 const App = {
-    version: "Version 3.4",
+    version: "Version 3.4 MS Office Compatible",
     elements: {
         songTitle: document.getElementById('songTitle'),
         lyricsInput: document.getElementById('lyricsInput'),
